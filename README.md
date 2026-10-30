@@ -1,6 +1,6 @@
 ﻿# HelpDesk Lite
 
-![Tests](https://github.com/Virus34558/helpdesk-lite/actions/workflows/tests.yml/badge.svg)
+[![Tests](https://github.com/Virus34558/helpdesk-lite/actions/workflows/tests.yml/badge.svg)](https://github.com/Virus34558/helpdesk-lite/actions/workflows/tests.yml)
 
 Gestor de incidencias IT inspirado en la herramienta interna de un departamento de soporte. Permite **registrar, consultar, actualizar y resolver incidencias**, con filtros por estado y prioridad.
 
