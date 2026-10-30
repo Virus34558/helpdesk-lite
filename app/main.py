@@ -1,7 +1,83 @@
-from fastapi import FastAPI
+from datetime import datetime
+from fastapi import FastAPI, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from . import models, schemas
+from .database import engine, get_db
+
+models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="HelpDesk Lite", description="Gestor de incidencias IT")
+
 
 @app.get("/")
 def inicio():
     return {"mensaje": "HelpDesk Lite funcionando"}
+
+
+@app.post("/incidencias", response_model=schemas.IncidenciaRespuesta, status_code=201)
+def crear_incidencia(datos: schemas.IncidenciaCrear, db: Session = Depends(get_db)):
+    incidencia = models.Incidencia(**datos.model_dump())
+    db.add(incidencia)
+    db.commit()
+    db.refresh(incidencia)
+    return incidencia
+
+
+@app.get("/incidencias", response_model=list[schemas.IncidenciaRespuesta])
+def listar_incidencias(
+    estado: schemas.Estado | None = None,
+    prioridad: schemas.Prioridad | None = None,
+    db: Session = Depends(get_db),
+):
+    consulta = db.query(models.Incidencia)
+    if estado:
+        consulta = consulta.filter(models.Incidencia.estado == estado.value)
+    if prioridad:
+        consulta = consulta.filter(models.Incidencia.prioridad == prioridad.value)
+    return consulta.order_by(models.Incidencia.id.desc()).all()
+
+
+@app.get("/incidencias/{incidencia_id}", response_model=schemas.IncidenciaRespuesta)
+def obtener_incidencia(incidencia_id: int, db: Session = Depends(get_db)):
+    incidencia = db.get(models.Incidencia, incidencia_id)
+    if incidencia is None:
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+    return incidencia
+
+
+@app.patch("/incidencias/{incidencia_id}", response_model=schemas.IncidenciaRespuesta)
+def actualizar_incidencia(
+    incidencia_id: int,
+    datos: schemas.IncidenciaActualizar,
+    db: Session = Depends(get_db),
+):
+    incidencia = db.get(models.Incidencia, incidencia_id)
+    if incidencia is None:
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+
+    for campo, valor in datos.model_dump(exclude_unset=True).items():
+        if valor is not None:
+            setattr(incidencia, campo, valor)
+
+    if incidencia.estado == "Resuelta" and incidencia.resuelta_en is None:
+        incidencia.resuelta_en = datetime.now()
+    elif incidencia.estado != "Resuelta":
+        incidencia.resuelta_en = None
+
+    db.commit()
+    db.refresh(incidencia)
+    return incidencia
+
+
+@app.post("/incidencias/{incidencia_id}/resolver", response_model=schemas.IncidenciaRespuesta)
+def resolver_incidencia(incidencia_id: int, db: Session = Depends(get_db)):
+    incidencia = db.get(models.Incidencia, incidencia_id)
+    if incidencia is None:
+        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+
+    incidencia.estado = "Resuelta"
+    incidencia.resuelta_en = datetime.now()
+    db.commit()
+    db.refresh(incidencia)
+    return incidencia
