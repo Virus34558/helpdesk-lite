@@ -79,7 +79,6 @@ python -m pytest -v
 Los tests usan una base de datos temporal en memoria y no tocan los datos reales.
 
 ## Estructura
-## Estructura
 
 ```
 helpdesk-lite/
