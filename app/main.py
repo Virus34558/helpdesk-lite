@@ -1,5 +1,8 @@
 from datetime import datetime
+from pathlib import Path
+
 from fastapi import FastAPI, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from . import models, schemas
@@ -10,9 +13,9 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(title="HelpDesk Lite", description="Gestor de incidencias IT")
 
 
-@app.get("/")
+@app.get("/", include_in_schema=False)
 def inicio():
-    return {"mensaje": "HelpDesk Lite funcionando"}
+    return FileResponse(Path(__file__).parent / "static" / "index.html")
 
 
 @app.post("/incidencias", response_model=schemas.IncidenciaRespuesta, status_code=201)
@@ -43,41 +46,3 @@ def obtener_incidencia(incidencia_id: int, db: Session = Depends(get_db)):
     incidencia = db.get(models.Incidencia, incidencia_id)
     if incidencia is None:
         raise HTTPException(status_code=404, detail="Incidencia no encontrada")
-    return incidencia
-
-
-@app.patch("/incidencias/{incidencia_id}", response_model=schemas.IncidenciaRespuesta)
-def actualizar_incidencia(
-    incidencia_id: int,
-    datos: schemas.IncidenciaActualizar,
-    db: Session = Depends(get_db),
-):
-    incidencia = db.get(models.Incidencia, incidencia_id)
-    if incidencia is None:
-        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
-
-    for campo, valor in datos.model_dump(exclude_unset=True).items():
-        if valor is not None:
-            setattr(incidencia, campo, valor)
-
-    if incidencia.estado == "Resuelta" and incidencia.resuelta_en is None:
-        incidencia.resuelta_en = datetime.now()
-    elif incidencia.estado != "Resuelta":
-        incidencia.resuelta_en = None
-
-    db.commit()
-    db.refresh(incidencia)
-    return incidencia
-
-
-@app.post("/incidencias/{incidencia_id}/resolver", response_model=schemas.IncidenciaRespuesta)
-def resolver_incidencia(incidencia_id: int, db: Session = Depends(get_db)):
-    incidencia = db.get(models.Incidencia, incidencia_id)
-    if incidencia is None:
-        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
-
-    incidencia.estado = "Resuelta"
-    incidencia.resuelta_en = datetime.now()
-    db.commit()
-    db.refresh(incidencia)
-    return incidencia

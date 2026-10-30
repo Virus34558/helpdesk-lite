@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HelpDesk Lite</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #f4f6f8; margin: 0; color: #1f2933; }
+    header { background: #1f3a5f; color: white; padding: 20px 32px; }
+    header h1 { margin: 0; font-size: 1.5rem; }
+    header p { margin: 4px 0 0; opacity: .8; font-size: .9rem; }
+    main { max-width: 1000px; margin: 24px auto; padding: 0 16px; }
+    section { background: white; border-radius: 8px; padding: 20px; margin-bottom: 24px;
+              box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+    h2 { margin-top: 0; font-size: 1.1rem; }
+    form { display: grid; gap: 12px; }
+    label { display: grid; gap: 4px; font-size: .85rem; font-weight: 600; }
+    input, textarea, select { padding: 8px; border: 1px solid #cbd2d9; border-radius: 6px; font: inherit; }
+    button { padding: 8px 14px; border: none; border-radius: 6px; background: #1f3a5f;
+             color: white; cursor: pointer; font: inherit; }
+    button:hover { background: #2c5282; }
+    button.secundario { background: #2f855a; }
+    .filtros { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e4e7eb; vertical-align: top; }
+    th { background: #f0f4f8; }
+    .etiqueta { padding: 2px 10px; border-radius: 12px; font-size: .8rem; font-weight: 600; white-space: nowrap; }
+    .Alta { background: #fed7d7; color: #9b2c2c; }
+    .Media { background: #feebc8; color: #975a16; }
+    .Baja { background: #c6f6d5; color: #276749; }
+    .acciones { display: flex; gap: 6px; align-items: center; }
+    .vacio { text-align: center; color: #7b8794; padding: 24px; }
+    .desc { color: #616e7c; font-size: .8rem; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>HelpDesk Lite</h1>
+    <p>Gestor de incidencias IT</p>
+  </header>
+
+  <main>
+    <section>
+      <h2>Nueva incidencia</h2>
+      <form id="formulario">
+        <label>Título
+          <input id="titulo" required minlength="3" maxlength="100" placeholder="Ej: No funciona Internet">
+        </label>
+        <label>Descripción
+          <textarea id="descripcion" rows="2" placeholder="Detalla el problema"></textarea>
+        </label>
+        <label>Prioridad
+          <select id="prioridad">
+            <option>Alta</option>
+            <option selected>Media</option>
+            <option>Baja</option>
+          </select>
+        </label>
+        <button type="submit">Registrar incidencia</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Incidencias</h2>
+      <div class="filtros">
+        <select id="filtroEstado">
+          <option value="">Todos los estados</option>
+          <option>Abierta</option>
+          <option>En proceso</option>
+          <option>Resuelta</option>
+        </select>
+        <select id="filtroPrioridad">
+          <option value="">Todas las prioridades</option>
+          <option>Alta</option>
+          <option>Media</option>
+          <option>Baja</option>
+        </select>
+      </div>
+
+      <table>
+        <thead>
+          <tr><th>#</th><th>Incidencia</th><th>Prioridad</th><th>Estado</th><th>Creada</th><th>Acciones</th></tr>
+        </thead>
+        <tbody id="tabla"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script>
+    const API = "/incidencias";
+    const tabla = document.getElementById("tabla");
+    const filtroEstado = document.getElementById("filtroEstado");
+    const filtroPrioridad = document.getElementById("filtroPrioridad");
+
+    // Evita que un texto malicioso se ejecute como HTML (seguridad básica)
+    function esc(texto) {
+      const div = document.createElement("div");
+      div.textContent = texto;
+      return div.innerHTML;
+    }
+
+    function formatearFecha(iso) {
+      return new Date(iso).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" });
+    }
+
+    async function cargar() {
+      const params = new URLSearchParams();
+      if (filtroEstado.value) params.set("estado", filtroEstado.value);
+      if (filtroPrioridad.value) params.set("prioridad", filtroPrioridad.value);
+
+      const respuesta = await fetch(`${API}?${params}`);
+      const incidencias = await respuesta.json();
+
+      if (incidencias.length === 0) {
+        tabla.innerHTML = '<tr><td colspan="6" class="vacio">No hay incidencias</td></tr>';
+        return;
+      }
+
+      tabla.innerHTML = incidencias.map(i => `
+        <tr>
+          <td>${i.id}</td>
+          <td>${esc(i.titulo)}<div class="desc">${esc(i.descripcion)}</div></td>
+          <td><span class="etiqueta ${i.prioridad}">${i.prioridad}</span></td>
+          <td>
+            <select onchange="cambiarEstado(${i.id}, this.value)">
+              ${["Abierta", "En proceso", "Resuelta"].map(e =>
+                `<option ${e === i.estado ? "selected" : ""}>${e}</option>`).join("")}
+            </select>
+          </td>
+          <td>${formatearFecha(i.creada_en)}</td>
+          <td class="acciones">
+            ${i.estado !== "Resuelta"
+              ? `<button class="secundario" onclick="resolver(${i.id})">Resolver</button>`
+              : "✔"}
+          </td>
+        </tr>`).join("");
+    }
+
+    async function cambiarEstado(id, estado) {
+      await fetch(`${API}/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ estado })
+      });
+      cargar();
+    }
+
+    async function resolver(id) {
+      await fetch(`${API}/${id}/resolver`, { method: "POST" });
+      cargar();
+    }
+
+    document.getElementById("formulario").addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+      const respuesta = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          titulo: document.getElementById("titulo").value,
+          descripcion: document.getElementById("descripcion").value,
+          prioridad: document.getElementById("prioridad").value
+        })
+      });
+      if (!respuesta.ok) {
+        alert("No se pudo crear la incidencia. Revisa los datos.");
+        return;
+      }
+      evento.target.reset();
+      cargar();
+    });
+
+    filtroEstado.addEventListener("change", cargar);
+    filtroPrioridad.addEventListener("change", cargar);
+
+    cargar();
+  </script>
+</body>
+</html>
