@@ -79,6 +79,24 @@ python -m pytest -v
 Los tests usan una base de datos temporal en memoria y no tocan los datos reales.
 
 ## Estructura
+## Estructura
+
+```
+helpdesk-lite/
+|-- app/
+|   |-- main.py          # Endpoints de la API
+|   |-- models.py        # Tabla de incidencias (SQLAlchemy)
+|   |-- schemas.py       # Validacion de datos (Pydantic)
+|   |-- database.py      # Conexion a la base de datos
+|   `-- static/
+|       `-- index.html   # Interfaz web
+|-- tests/               # Tests con pytest
+|-- .github/workflows/   # GitHub Actions
+|-- Dockerfile
+|-- requirements.txt
+`-- README.md
+```
+
 
 ## Limitaciones y próximas mejoras
 
