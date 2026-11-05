@@ -7,10 +7,17 @@ from sqlalchemy.orm import Session
 
 from . import models, schemas
 from .database import engine, get_db
+from .routers import auth as auth_router
 
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="HelpDesk Lite", description="Gestor de incidencias IT")
+app = FastAPI(
+    title="HelpDesk Lite - ITSM",
+    description="Sistema de Gestión de Helpdesk y Soporte Técnico (ITSM)",
+    version="1.1.0",
+)
+
+app.include_router(auth_router.router)
 
 
 @app.get("/", include_in_schema=False)

@@ -1,6 +1,43 @@
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, EmailStr
+
+
+class RolUsuario(str, Enum):
+    solicitante = "solicitante"
+    agente = "agente"
+    supervisor = "supervisor"
+    administrador = "administrador"
+
+
+class UsuarioBase(BaseModel):
+    email: EmailStr
+    nombre_completo: str = Field(min_length=2, max_length=150)
+    rol: RolUsuario = RolUsuario.solicitante
+    departamento: str | None = Field(default=None, max_length=100)
+
+
+class UsuarioRegistro(UsuarioBase):
+    password: str = Field(min_length=6, max_length=128)
+
+
+class UsuarioLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UsuarioRespuesta(UsuarioBase):
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+
+    id: int
+    activo: bool
+    creado_en: datetime
+
+
+class TokenRespuesta(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    usuario: UsuarioRespuesta
 
 
 class Prioridad(str, Enum):
