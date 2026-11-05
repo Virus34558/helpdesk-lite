@@ -1,8 +1,8 @@
-﻿# HelpDesk Lite
+# HelpDesk Lite - ITSM
 
 [![Tests](https://github.com/Virus34558/helpdesk-lite/actions/workflows/tests.yml/badge.svg)](https://github.com/Virus34558/helpdesk-lite/actions/workflows/tests.yml)
 
-Gestor de incidencias IT inspirado en la herramienta interna de un departamento de soporte. Permite **registrar, consultar, actualizar y resolver incidencias**, con filtros por estado y prioridad.
+Sistema de gestión de incidencias y soporte técnico (ITSM) desarrollado en **FastAPI** y **SQLAlchemy**. Permite centralizar la recepción, gestión y resolución de tickets, con control de acceso basado en roles (**RBAC**), autenticación **JWT** y filtros operativos.
 
 **Demo en vivo:** helpdesk-lite-6x8a.onrender.com/
 
@@ -12,42 +12,63 @@ Gestor de incidencias IT inspirado en la herramienta interna de un departamento 
 
 ## Qué permite hacer
 
-| Incidencia | Prioridad | Estado |
-|---|---|---|
-| No funciona Internet | Alta | Abierta |
-| Error al instalar software | Media | En proceso |
-| Problema con impresora | Baja | Resuelta |
+### Gestión de Incidencias
+- Crear incidencias con título, descripción y prioridad (Alta, Media, Baja).
+- Cambiar estados operativos: `Abierta`, `En proceso`, `Resuelta`.
+- Resolver incidencias con un solo clic (con sellado de fecha de resolución).
+- Filtrar incidencias por estado y prioridad en tiempo real.
+- Validación estricta con Pydantic: longitud mínima de títulos y control de enumerados válidos.
 
-- Crear incidencias con título, descripción y prioridad (Alta, Media, Baja)
-- Cambiar el estado: Abierta, En proceso, Resuelta
-- Resolver una incidencia con un clic (se guarda la fecha de resolución)
-- Filtrar por estado y por prioridad
-- Validación de datos: la API rechaza prioridades inventadas o títulos demasiado cortos
+### Autenticación y Control de Acceso (RBAC)
+- **4 Roles de Usuario (ITSM):** `solicitante` (usuario final), `agente` (técnico N1-N3), `supervisor` (team lead) y `administrador`.
+- **Criptografía segura:** contraseñas hasheadas con `bcrypt` (12 rondas de *salting*).
+- **Sesiones con JWT:** emisión y validación de tokens Bearer (`HS256`) con expiración.
+- **Auto-promoción inicial:** el primer usuario registrado en el sistema se convierte automáticamente en `administrador`.
+- **Protección de rutas:** validación de permisos en endpoints (ej. solo supervisores y administradores pueden listar usuarios).
+
+---
 
 ## Tecnologías
 
-- **Python** y **FastAPI**: API REST con documentación automática en `/docs`
-- **SQLAlchemy**: acceso a la base de datos
-- **SQLite** en local y **PostgreSQL** en producción
-- **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 10 tests automáticos
-- **GitHub Actions**: ejecuta los tests en cada subida
-- **Docker**: la app empaquetada en un contenedor
-- **Render**: despliegue en la nube
+- **Python** y **FastAPI**: API REST de alto rendimiento con documentación OpenAPI interactiva en `/docs`.
+- **SQLAlchemy 2.0**: ORM y capa de acceso a base de datos.
+- **SQLite** en desarrollo local y **PostgreSQL** (`psycopg3`) en producción.
+- **Criptografía y Tokens**: `bcrypt` para passwords y `PyJWT` para autenticación con tokens de acceso.
+- **HTML, CSS y JavaScript**: Interfaz ligera sin frameworks externos.
+- **pytest**: 20 tests automáticos para incidencias, autenticación y RBAC.
+- **GitHub Actions**: Pipeline de CI que ejecuta los tests en cada subida.
+- **Docker**: Contenedor listo para despliegue basado en `python:3.13-slim`.
+- **Render**: Plataforma de despliegue en la nube.
+
+---
 
 ## API
+
+### Módulo de Autenticación y Roles (`/auth`)
+
+| Acción | Método y ruta | Acceso requerido |
+|---|---|---|
+| Registrar nuevo usuario | `POST /auth/registro` | Público |
+| Iniciar sesión (obtener JWT) | `POST /auth/login` | Público |
+| Consultar perfil en sesión | `GET /auth/me` | Autenticado |
+| Listar usuarios del sistema | `GET /auth/usuarios` | `supervisor`, `administrador` |
+| Modificar rol de usuario | `PATCH /auth/usuarios/{id}/rol` | `administrador` |
+
+### Módulo de Incidencias (`/incidencias`)
 
 | Acción | Método y ruta |
 |---|---|
 | Crear incidencia | `POST /incidencias` |
 | Listar (con filtros) | `GET /incidencias?estado=Abierta&prioridad=Alta` |
-| Consultar una | `GET /incidencias/{id}` |
-| Actualizar | `PATCH /incidencias/{id}` |
-| Resolver | `POST /incidencias/{id}/resolver` |
+| Consultar una incidencia | `GET /incidencias/{id}` |
+| Actualizar campos o estado | `PATCH /incidencias/{id}` |
+| Resolver incidencia | `POST /incidencias/{id}/resolver` |
 
-Documentación interactiva en `/docs`:
+Documentación interactiva disponible en `/docs`:
 
 ![Documentación de la API](docs/api-docs.png)
+
+---
 
 ## Ejecutar en local
 
@@ -60,7 +81,9 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-Abre http://127.0.0.1:8000
+Abre http://127.0.0.1:8000 en tu navegador, o consulta http://127.0.0.1:8000/docs para la documentación Swagger interactiva.
+
+---
 
 ## Ejecutar con Docker
 
@@ -69,6 +92,8 @@ docker build -t helpdesk-lite .
 docker run -p 8000:8000 helpdesk-lite
 ```
 
+---
+
 ## Tests
 
 ```bash
@@ -76,36 +101,49 @@ pip install -r requirements-dev.txt
 python -m pytest -v
 ```
 
-Los tests usan una base de datos temporal en memoria y no tocan los datos reales.
+Los tests utilizan una base de datos temporal en memoria (`StaticPool`), garantizando velocidad y aislamiento total sin alterar los datos locales.
 
-## Estructura
+---
+
+## Estructura del Proyecto
 
 ```
 helpdesk-lite/
 |-- app/
-|   |-- main.py          # Endpoints de la API
-|   |-- models.py        # Tabla de incidencias (SQLAlchemy)
-|   |-- schemas.py       # Validacion de datos (Pydantic)
-|   |-- database.py      # Conexion a la base de datos
+|   |-- routers/
+|   |   `-- auth.py      # Endpoints de autenticacion y usuarios
+|   |-- auth.py          # Logica criptografica (bcrypt), JWT y dependencias RBAC
+|   |-- database.py      # Conexion y sesion de base de datos
+|   |-- main.py          # Inicializacion de FastAPI y rutas principales
+|   |-- models.py        # Modelos ORM (Usuario, Incidencia) con SQLAlchemy
+|   |-- schemas.py       # Esquemas de validacion y serializacion (Pydantic v2)
 |   `-- static/
-|       `-- index.html   # Interfaz web
-|-- tests/               # Tests con pytest
-|-- .github/workflows/   # GitHub Actions
+|       `-- index.html   # Interfaz web de usuario
+|-- tests/
+|   |-- conftest.py          # Fixtures y configuracion de BD en memoria
+|   |-- test_auth.py         # Tests de autenticacion, login y permisos RBAC
+|   `-- test_incidencias.py  # Tests de incidencias, filtros y estados
+|-- .github/workflows/       # Pipeline CI con GitHub Actions
 |-- Dockerfile
 |-- requirements.txt
+|-- requirements-dev.txt
 `-- README.md
 ```
 
+---
 
-## Limitaciones y próximas mejoras
+## Roadmap y Próximas Mejoras
 
-Es un proyecto de aprendizaje, así que he dejado fuera algunas cosas a propósito:
-
-- [ ] Autenticación de usuarios y roles (técnico / usuario)
-- [ ] Asignar incidencias a un técnico
-- [ ] Comentarios e historial de cambios
+- [x] Autenticación de usuarios y roles RBAC (`solicitante`, `agente`, `supervisor`, `administrador`)
+- [ ] Modelo `Ticket` con identificador legible (`INC-YYYY-XXXX`) y matriz ITIL (Impacto × Urgencia = Prioridad P1–P4)
+- [ ] Asignación de tickets a agentes técnicos y grupos de soporte
+- [ ] Hilo de comunicación dual: respuestas públicas al solicitante vs. notas internas para agentes
+- [ ] Motor de SLAs con calendarios laborales y pausa de temporizador ("Stop the clock")
+- [ ] Base de Conocimiento (Knowledge Base) con deflexión de tickets al escribir el asunto
 - [ ] Migraciones de base de datos con Alembic
-- [ ] Paginación del listado
+- [ ] Paginación y búsqueda rápida
+
+---
 
 ## Autor
 
