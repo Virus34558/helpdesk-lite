@@ -1,3 +1,5 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -21,10 +23,10 @@ class CambioRol(BaseModel):
 def registrar_usuario(
     datos: schemas.UsuarioRegistro, db: Session = Depends(get_db)
 ):
+    email = datos.email.lower().strip()
+
     usuario_existente = (
-        db.query(models.Usuario)
-        .filter(models.Usuario.email == datos.email.lower().strip())
-        .first()
+        db.query(models.Usuario).filter(models.Usuario.email == email).first()
     )
     if usuario_existente:
         raise HTTPException(
@@ -32,16 +34,24 @@ def registrar_usuario(
             detail="El correo electrónico ya está registrado",
         )
 
-    # Si es el primer usuario en toda la base de datos, se le otorga rol de administrador
-    total_usuarios = db.query(models.Usuario).count()
-    rol_asignado = (
-        models.RolUsuario.ADMINISTRADOR.value
-        if total_usuarios == 0
-        else (datos.rol.value if hasattr(datos.rol, "value") else str(datos.rol))
+    # El registro publico NUNCA permite elegir el rol (se ignora datos.rol).
+    # Solo se crea un administrador cuando todavia no existe ninguno y,
+    # si se definio ADMIN_EMAIL, el correo coincide con el.
+    hay_admin = (
+        db.query(models.Usuario)
+        .filter(models.Usuario.rol == models.RolUsuario.ADMINISTRADOR.value)
+        .count()
+        > 0
     )
+    admin_email = os.getenv("ADMIN_EMAIL", "").lower().strip()
+
+    if not hay_admin and (not admin_email or email == admin_email):
+        rol_asignado = models.RolUsuario.ADMINISTRADOR.value
+    else:
+        rol_asignado = models.RolUsuario.SOLICITANTE.value
 
     nuevo_usuario = models.Usuario(
-        email=datos.email.lower().strip(),
+        email=email,
         nombre_completo=datos.nombre_completo.strip(),
         password_hash=auth.hash_password(datos.password),
         rol=rol_asignado,

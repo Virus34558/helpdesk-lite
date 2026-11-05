@@ -133,3 +133,19 @@ def test_cambio_rol_solo_por_administrador(client):
     assert res.status_code == 200
     assert res.json()["rol"] == "agente"
 
+def test_registro_publico_no_permite_elegirse_administrador(client):
+    # El primero es administrador
+    client.post("/auth/registro", json={
+        "email": "admin@test.com",
+        "nombre_completo": "Admin Uno",
+        "password": "clave1234",
+    })
+    # El segundo intenta colarse como administrador
+    respuesta = client.post("/auth/registro", json={
+        "email": "intruso@test.com",
+        "nombre_completo": "Intruso Dos",
+        "password": "clave1234",
+        "rol": "administrador",
+    })
+    assert respuesta.status_code == 201
+    assert respuesta.json()["rol"] == "solicitante"

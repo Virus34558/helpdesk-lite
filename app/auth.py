@@ -1,6 +1,6 @@
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Sequence
 
 import bcrypt
 import jwt
@@ -11,9 +11,9 @@ from sqlalchemy.orm import Session
 from . import models
 from .database import get_db
 
-SECRET_KEY = os.getenv(
-    "SECRET_KEY", "helpdesk-insecure-secret-key-change-in-production-min-32-chars-long"
-)
+# La clave se lee del entorno. Si no existe (en local o en los tests),
+# se genera una aleatoria en cada arranque: nunca hay una clave fija en el codigo.
+SECRET_KEY = os.getenv("SECRET_KEY") or secrets.token_urlsafe(64)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))  # 24 horas
 
