@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Boolean
+from sqlalchemy import String, Text, DateTime, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from .database import Base
 
@@ -31,7 +31,14 @@ class Incidencia(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     titulo: Mapped[str] = mapped_column(String(100))
     descripcion: Mapped[str] = mapped_column(Text, default="")
-    prioridad: Mapped[str] = mapped_column(String(10), default="Media")
-    estado: Mapped[str] = mapped_column(String(15), default="Abierta")
+    impacto: Mapped[str] = mapped_column(String(10), default="Bajo")
+    urgencia: Mapped[str] = mapped_column(String(10), default="Media")
+    prioridad: Mapped[str] = mapped_column(String(15), default="P4 - Baja")
+    estado: Mapped[str] = mapped_column(String(25), default="Nuevo")
+    nota_resolucion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    solicitante_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
     creada_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    actualizada_en: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, onupdate=datetime.now
+    )
     resuelta_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

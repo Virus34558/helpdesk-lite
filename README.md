@@ -35,7 +35,7 @@ Sistema de gestión de incidencias y soporte técnico (ITSM) desarrollado en **F
 - **SQLite** en desarrollo local y **PostgreSQL** (`psycopg3`) en producción.
 - **Criptografía y Tokens**: `bcrypt` para passwords y `PyJWT` para autenticación con tokens de acceso.
 - **HTML, CSS y JavaScript**: Interfaz ligera sin frameworks externos.
-- **pytest**: 20 tests automáticos para incidencias, autenticación y RBAC.
+- **pytest**: 53 tests automáticos para incidencias, autenticación, RBAC y reglas ITIL.
 - **GitHub Actions**: Pipeline de CI que ejecuta los tests en cada subida.
 - **Docker**: Contenedor listo para despliegue basado en `python:3.13-slim`.
 - **Render**: Plataforma de despliegue en la nube.
@@ -116,13 +116,15 @@ helpdesk-lite/
 |   |-- database.py      # Conexion y sesion de base de datos
 |   |-- main.py          # Inicializacion de FastAPI y rutas principales
 |   |-- models.py        # Modelos ORM (Usuario, Incidencia) con SQLAlchemy
+|   |-- reglas.py        # Matriz ITIL de prioridades y maquina de estados
 |   |-- schemas.py       # Esquemas de validacion y serializacion (Pydantic v2)
 |   `-- static/
 |       `-- index.html   # Interfaz web de usuario
 |-- tests/
 |   |-- conftest.py          # Fixtures y configuracion de BD en memoria
 |   |-- test_auth.py         # Tests de autenticacion, login y permisos RBAC
-|   `-- test_incidencias.py  # Tests de incidencias, filtros y estados
+|   |-- test_incidencias.py  # Tests de incidencias, filtros y estados
+|   `-- test_reglas.py       # Tests de matriz ITIL y transiciones de estado
 |-- .github/workflows/       # Pipeline CI con GitHub Actions
 |-- Dockerfile
 |-- requirements.txt
@@ -135,7 +137,8 @@ helpdesk-lite/
 ## Roadmap y Próximas Mejoras
 
 - [x] Autenticación de usuarios y roles RBAC (`solicitante`, `agente`, `supervisor`, `administrador`)
-- [ ] Modelo `Ticket` con identificador legible (`INC-YYYY-XXXX`) y matriz ITIL (Impacto × Urgencia = Prioridad P1–P4)
+- [x] Máquina de estados (7 estados) y matriz ITIL (Impacto × Urgencia = Prioridad P1–P4 calculada)
+- [ ] Identificador amigable indexado (ej. `INC-2026-000142`) y tipología de tickets
 - [ ] Asignación de tickets a agentes técnicos y grupos de soporte
 - [ ] Hilo de comunicación dual: respuestas públicas al solicitante vs. notas internas para agentes
 - [ ] Motor de SLAs con calendarios laborales y pausa de temporizador ("Stop the clock")

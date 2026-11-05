@@ -40,24 +40,43 @@ class TokenRespuesta(BaseModel):
     usuario: UsuarioRespuesta
 
 
-class Prioridad(str, Enum):
-    alta = "Alta"
-    media = "Media"
+class Impacto(str, Enum):
+    bajo = "Bajo"
+    medio = "Medio"
+    alto = "Alto"
+
+
+class Urgencia(str, Enum):
     baja = "Baja"
+    media = "Media"
+    alta = "Alta"
+    critica = "Crítica"
+
+
+class Prioridad(str, Enum):
+    p1 = "P1 - Crítica"
+    p2 = "P2 - Alta"
+    p3 = "P3 - Media"
+    p4 = "P4 - Baja"
 
 
 class Estado(str, Enum):
-    abierta = "Abierta"
-    en_proceso = "En proceso"
-    resuelta = "Resuelta"
+    nuevo = "Nuevo"
+    en_progreso = "En progreso"
+    pendiente_usuario = "Pendiente de usuario"
+    pendiente_tercero = "Pendiente de tercero"
+    resuelto = "Resuelto"
+    cerrado = "Cerrado"
+    cancelado = "Cancelado"
 
 
 class IncidenciaCrear(BaseModel):
-    model_config = ConfigDict(use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True, validate_default=True)
 
     titulo: str = Field(min_length=3, max_length=100)
     descripcion: str = ""
-    prioridad: Prioridad = Prioridad.media
+    impacto: Impacto = Impacto.bajo
+    urgencia: Urgencia = Urgencia.media
 
 
 class IncidenciaActualizar(BaseModel):
@@ -65,8 +84,14 @@ class IncidenciaActualizar(BaseModel):
 
     titulo: str | None = Field(default=None, min_length=3, max_length=100)
     descripcion: str | None = None
-    prioridad: Prioridad | None = None
+    impacto: Impacto | None = None
+    urgencia: Urgencia | None = None
     estado: Estado | None = None
+    nota_resolucion: str | None = Field(default=None, min_length=5, max_length=1000)
+
+
+class ResolverIncidencia(BaseModel):
+    nota_resolucion: str = Field(min_length=5, max_length=1000)
 
 
 class IncidenciaRespuesta(BaseModel):
@@ -75,7 +100,12 @@ class IncidenciaRespuesta(BaseModel):
     id: int
     titulo: str
     descripcion: str
+    impacto: Impacto
+    urgencia: Urgencia
     prioridad: Prioridad
     estado: Estado
+    nota_resolucion: str | None
+    solicitante_id: int
     creada_en: datetime
+    actualizada_en: datetime
     resuelta_en: datetime | None
