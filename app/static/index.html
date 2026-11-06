@@ -1,102 +1,368 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HelpDesk Lite</title>
   <style>
-    * { box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: #f4f6f8; margin: 0; color: #1f2933; }
-    header { background: #1f3a5f; color: white; padding: 20px 32px; }
-    header h1 { margin: 0; font-size: 1.5rem; }
-    header p { margin: 4px 0 0; opacity: .8; font-size: .9rem; }
-    main { max-width: 1000px; margin: 24px auto; padding: 0 16px; }
-    section { background: white; border-radius: 8px; padding: 20px; margin-bottom: 24px;
-              box-shadow: 0 1px 3px rgba(0,0,0,.1); }
-    h2 { margin-top: 0; font-size: 1.1rem; }
-    form { display: grid; gap: 12px; }
-    label { display: grid; gap: 4px; font-size: .85rem; font-weight: 600; }
-    input, textarea, select { padding: 8px; border: 1px solid #cbd2d9; border-radius: 6px; font: inherit; }
-    button { padding: 8px 14px; border: none; border-radius: 6px; background: #1f3a5f;
-             color: white; cursor: pointer; font: inherit; }
-    button:hover { background: #2c5282; }
-    button.secundario { background: #2f855a; }
-    .filtros { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
-    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
-    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #e4e7eb; vertical-align: top; }
-    th { background: #f0f4f8; }
-    .etiqueta { padding: 2px 10px; border-radius: 12px; font-size: .8rem; font-weight: 600; white-space: nowrap; }
-    .Alta { background: #fed7d7; color: #9b2c2c; }
-    .Media { background: #feebc8; color: #975a16; }
-    .Baja { background: #c6f6d5; color: #276749; }
-    .acciones { display: flex; gap: 6px; align-items: center; }
-    .vacio { text-align: center; color: #7b8794; padding: 24px; }
-    .desc { color: #616e7c; font-size: .8rem; }
+    * {
+      box-sizing: border-box;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    body {
+      font-family: system-ui, sans-serif;
+      background: #f4f6f8;
+      margin: 0;
+      color: #1f2933;
+    }
+
+    header {
+      background: #1f3a5f;
+      color: white;
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 1.5rem;
+    }
+
+    header p {
+      margin: 4px 0 0;
+      opacity: .8;
+      font-size: .9rem;
+    }
+
+    #sesion {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: .9rem;
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+
+    section {
+      background: white;
+      border-radius: 8px;
+      padding: 20px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, .1);
+    }
+
+    #vistaAcceso {
+      max-width: 420px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    h2 {
+      margin-top: 0;
+      font-size: 1.1rem;
+    }
+
+    form {
+      display: grid;
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 4px;
+      font-size: .85rem;
+      font-weight: 600;
+    }
+
+    input,
+    textarea,
+    select {
+      padding: 8px;
+      border: 1px solid #cbd2d9;
+      border-radius: 6px;
+      font: inherit;
+    }
+
+    button {
+      padding: 8px 14px;
+      border: none;
+      border-radius: 6px;
+      background: #1f3a5f;
+      color: white;
+      cursor: pointer;
+      font: inherit;
+    }
+
+    button:hover {
+      background: #2c5282;
+    }
+
+    button.secundario {
+      background: #2f855a;
+    }
+
+    button.salir {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, .6);
+    }
+
+    .fila {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .filtros {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .tabla-scroll {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .9rem;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 10px 8px;
+      border-bottom: 1px solid #e4e7eb;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f0f4f8;
+    }
+
+    .etiqueta {
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: .8rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .p1 {
+      background: #fed7d7;
+      color: #9b2c2c;
+    }
+
+    .p2 {
+      background: #feebc8;
+      color: #975a16;
+    }
+
+    .p3 {
+      background: #fefcbf;
+      color: #744210;
+    }
+
+    .p4 {
+      background: #c6f6d5;
+      color: #276749;
+    }
+
+    .estado {
+      background: #e4e7eb;
+      color: #3e4c59;
+    }
+
+    .mensaje {
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin-bottom: 16px;
+      background: #fed7d7;
+      color: #9b2c2c;
+    }
+
+    .mensaje.ok {
+      background: #c6f6d5;
+      color: #276749;
+    }
+
+    .vacio {
+      text-align: center;
+      color: #7b8794;
+      padding: 24px;
+    }
+
+    .desc {
+      color: #616e7c;
+      font-size: .8rem;
+    }
+
+    .nota {
+      color: #276749;
+      font-size: .8rem;
+      margin-top: 4px;
+    }
+
+    .pequeno {
+      font-size: .8rem;
+      color: #616e7c;
+      white-space: nowrap;
+    }
+
+    .centrado {
+      text-align: center;
+      font-size: .85rem;
+    }
   </style>
 </head>
+
 <body>
   <header>
-    <h1>HelpDesk Lite</h1>
-    <p>Gestor de incidencias IT</p>
+    <div>
+      <h1>HelpDesk Lite</h1>
+      <p>Gestor de incidencias IT</p>
+    </div>
+    <div id="sesion" hidden>
+      <span id="usuarioInfo"></span>
+      <button id="btnSalir" class="salir">Cerrar sesión</button>
+    </div>
   </header>
 
   <main>
-    <section>
-      <h2>Nueva incidencia</h2>
-      <form id="formulario">
-        <label>Título
-          <input id="titulo" required minlength="3" maxlength="100" placeholder="Ej: No funciona Internet">
+    <div id="mensaje" class="mensaje" hidden></div>
+
+    <!-- Pantalla de acceso -->
+    <section id="vistaAcceso" hidden>
+      <h2 id="tituloAcceso">Iniciar sesión</h2>
+      <form id="formAcceso">
+        <label id="lblNombre" hidden>Nombre completo
+          <input id="nombre" minlength="2" maxlength="150" autocomplete="name">
         </label>
-        <label>Descripción
-          <textarea id="descripcion" rows="2" placeholder="Detalla el problema"></textarea>
+        <label>Correo electrónico
+          <input id="email" type="email" required autocomplete="email">
         </label>
-        <label>Prioridad
-          <select id="prioridad">
-            <option>Alta</option>
-            <option selected>Media</option>
-            <option>Baja</option>
-          </select>
+        <label>Contraseña
+          <input id="password" type="password" required minlength="6" autocomplete="current-password">
         </label>
-        <button type="submit">Registrar incidencia</button>
+        <button type="submit" id="btnAcceso">Entrar</button>
       </form>
+      <p class="centrado"><a href="#" id="cambiarModo">¿No tienes cuenta? Regístrate</a></p>
+      <p class="centrado">Demo pública: no uses contraseñas reales ni datos personales.</p>
     </section>
 
-    <section>
-      <h2>Incidencias</h2>
-      <div class="filtros">
-        <select id="filtroEstado">
-          <option value="">Todos los estados</option>
-          <option>Abierta</option>
-          <option>En proceso</option>
-          <option>Resuelta</option>
-        </select>
-        <select id="filtroPrioridad">
-          <option value="">Todas las prioridades</option>
-          <option>Alta</option>
-          <option>Media</option>
-          <option>Baja</option>
-        </select>
-      </div>
+    <!-- Aplicación -->
+    <div id="vistaApp" hidden>
+      <section>
+        <h2>Nueva incidencia</h2>
+        <form id="formIncidencia">
+          <label>Título
+            <input id="titulo" required minlength="3" maxlength="100" placeholder="Ej: No funciona Internet">
+          </label>
+          <label>Descripción
+            <textarea id="descripcion" rows="2" placeholder="Detalla el problema"></textarea>
+          </label>
+          <div id="camposGestor" class="fila" hidden>
+            <label>Impacto
+              <select id="impacto">
+                <option>Bajo</option>
+                <option>Medio</option>
+                <option>Alto</option>
+              </select>
+            </label>
+            <label>Urgencia
+              <select id="urgencia">
+                <option>Baja</option>
+                <option selected>Media</option>
+                <option>Alta</option>
+                <option>Crítica</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit">Registrar incidencia</button>
+        </form>
+      </section>
 
-      <table>
-        <thead>
-          <tr><th>#</th><th>Incidencia</th><th>Prioridad</th><th>Estado</th><th>Creada</th><th>Acciones</th></tr>
-        </thead>
-        <tbody id="tabla"></tbody>
-      </table>
-    </section>
+      <section>
+        <h2>Incidencias</h2>
+        <div class="filtros">
+          <select id="filtroEstado">
+            <option value="">Todos los estados</option>
+            <option>Nuevo</option>
+            <option>En progreso</option>
+            <option>Pendiente de usuario</option>
+            <option>Pendiente de tercero</option>
+            <option>Resuelto</option>
+            <option>Cerrado</option>
+            <option>Cancelado</option>
+          </select>
+          <select id="filtroPrioridad">
+            <option value="">Todas las prioridades</option>
+            <option>P1 - Crítica</option>
+            <option>P2 - Alta</option>
+            <option>P3 - Media</option>
+            <option>P4 - Baja</option>
+          </select>
+        </div>
+        <div class="tabla-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Incidencia</th>
+                <th>Prioridad</th>
+                <th>Impacto / Urgencia</th>
+                <th>Estado</th>
+                <th>Creada</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tabla"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
   </main>
 
   <script>
     const API = "/incidencias";
-    const tabla = document.getElementById("tabla");
-    const filtroEstado = document.getElementById("filtroEstado");
-    const filtroPrioridad = document.getElementById("filtroPrioridad");
 
-    // Evita que un texto malicioso se ejecute como HTML (seguridad básica)
+    // Mismas transiciones que el backend (app/reglas.py). El servidor es quien manda;
+    // esto solo evita ofrecer opciones que seguro darian error.
+    const TRANSICIONES = {
+      "Nuevo": ["En progreso", "Cancelado"],
+      "En progreso": ["Pendiente de usuario", "Pendiente de tercero", "Resuelto", "Cancelado"],
+      "Pendiente de usuario": ["En progreso", "Resuelto", "Cancelado"],
+      "Pendiente de tercero": ["En progreso", "Resuelto", "Cancelado"],
+      "Resuelto": ["En progreso", "Cerrado"],
+      "Cerrado": [],
+      "Cancelado": []
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    let token = sessionStorage.getItem("token");
+    let usuario = null;
+    try { usuario = JSON.parse(sessionStorage.getItem("usuario")); } catch (e) { }
+    let modoRegistro = false;
+
+    // Evita que un texto malicioso se ejecute como HTML (XSS)
     function esc(texto) {
       const div = document.createElement("div");
-      div.textContent = texto;
+      div.textContent = texto ?? "";
       return div.innerHTML;
     }
 
@@ -104,76 +370,238 @@
       return new Date(iso).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" });
     }
 
+    function esGestor() {
+      return usuario && usuario.rol !== "solicitante";
+    }
+
+    function mostrarMensaje(texto, ok = false) {
+      const caja = $("mensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    function ocultarMensaje() {
+      $("mensaje").hidden = true;
+    }
+
+    function textoError(datos) {
+      if (!datos || !datos.detail) return "Ha ocurrido un error. Inténtalo de nuevo.";
+      if (typeof datos.detail === "string") return datos.detail;
+      return datos.detail.map((d) => d.msg).join(". ");
+    }
+
+    // Todas las llamadas a la API pasan por aqui: añade el token y gestiona errores
+    async function api(url, opciones = {}) {
+      const cabeceras = { "Content-Type": "application/json" };
+      if (token) cabeceras.Authorization = "Bearer " + token;
+      const respuesta = await fetch(url, { ...opciones, headers: cabeceras });
+      let datos = null;
+      try { datos = await respuesta.json(); } catch (e) { }
+      if (respuesta.status === 401 && token) {
+        cerrarSesion("Tu sesión ha caducado. Entra de nuevo.");
+        throw new Error("401");
+      }
+      if (!respuesta.ok) throw new Error(textoError(datos));
+      return datos;
+    }
+
+    // ---------- Sesión ----------
+    function guardarSesion(datos) {
+      token = datos.access_token;
+      usuario = datos.usuario;
+      sessionStorage.setItem("token", token);
+      sessionStorage.setItem("usuario", JSON.stringify(usuario));
+    }
+
+    function cerrarSesion(aviso) {
+      token = null;
+      usuario = null;
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("usuario");
+      mostrarAcceso();
+      if (aviso) mostrarMensaje(aviso);
+    }
+
+    function mostrarAcceso() {
+      ocultarMensaje();
+      $("vistaApp").hidden = true;
+      $("sesion").hidden = true;
+      $("vistaAcceso").hidden = false;
+      actualizarModo();
+    }
+
+    function mostrarApp() {
+      ocultarMensaje();
+      $("vistaAcceso").hidden = true;
+      $("vistaApp").hidden = false;
+      $("sesion").hidden = false;
+      $("usuarioInfo").textContent = `${usuario.nombre_completo} (${usuario.rol})`;
+      $("camposGestor").hidden = !esGestor();
+      cargar();
+    }
+
+    function actualizarModo() {
+      $("tituloAcceso").textContent = modoRegistro ? "Crear cuenta" : "Iniciar sesión";
+      $("lblNombre").hidden = !modoRegistro;
+      $("nombre").required = modoRegistro;
+      $("btnAcceso").textContent = modoRegistro ? "Registrarme" : "Entrar";
+      $("cambiarModo").textContent = modoRegistro
+        ? "¿Ya tienes cuenta? Inicia sesión"
+        : "¿No tienes cuenta? Regístrate";
+      $("password").autocomplete = modoRegistro ? "new-password" : "current-password";
+    }
+
+    $("cambiarModo").addEventListener("click", (evento) => {
+      evento.preventDefault();
+      modoRegistro = !modoRegistro;
+      ocultarMensaje();
+      actualizarModo();
+    });
+
+    $("btnSalir").addEventListener("click", () => cerrarSesion());
+
+    $("formAcceso").addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+      ocultarMensaje();
+      const email = $("email").value.trim();
+      const password = $("password").value;
+      try {
+        if (modoRegistro) {
+          await api("/auth/registro", {
+            method: "POST",
+            body: JSON.stringify({ email, nombre_completo: $("nombre").value.trim(), password })
+          });
+        }
+        const datos = await api("/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password })
+        });
+        guardarSesion(datos);
+        evento.target.reset();
+        mostrarApp();
+      } catch (error) {
+        mostrarMensaje(error.message);
+      }
+    });
+
+    // ---------- Incidencias ----------
     async function cargar() {
       const params = new URLSearchParams();
-      if (filtroEstado.value) params.set("estado", filtroEstado.value);
-      if (filtroPrioridad.value) params.set("prioridad", filtroPrioridad.value);
+      if ($("filtroEstado").value) params.set("estado", $("filtroEstado").value);
+      if ($("filtroPrioridad").value) params.set("prioridad", $("filtroPrioridad").value);
+      try {
+        const lista = await api(`${API}?${params}`);
+        pintar(lista);
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    }
 
-      const respuesta = await fetch(`${API}?${params}`);
-      const incidencias = await respuesta.json();
+    function pintar(lista) {
+      const tabla = $("tabla");
+      const gestor = esGestor();
 
-      if (incidencias.length === 0) {
-        tabla.innerHTML = '<tr><td colspan="6" class="vacio">No hay incidencias</td></tr>';
+      if (lista.length === 0) {
+        tabla.innerHTML = '<tr><td colspan="7" class="vacio">No hay incidencias</td></tr>';
         return;
       }
 
-      tabla.innerHTML = incidencias.map(i => `
-        <tr>
-          <td>${i.id}</td>
-          <td>${esc(i.titulo)}<div class="desc">${esc(i.descripcion)}</div></td>
-          <td><span class="etiqueta ${i.prioridad}">${i.prioridad}</span></td>
-          <td>
-            <select onchange="cambiarEstado(${i.id}, this.value)">
-              ${["Abierta", "En proceso", "Resuelta"].map(e =>
-                `<option ${e === i.estado ? "selected" : ""}>${e}</option>`).join("")}
-            </select>
-          </td>
-          <td>${formatearFecha(i.creada_en)}</td>
-          <td class="acciones">
-            ${i.estado !== "Resuelta"
-              ? `<button class="secundario" onclick="resolver(${i.id})">Resolver</button>`
-              : "✔"}
-          </td>
-        </tr>`).join("");
+      tabla.innerHTML = lista.map((i) => {
+        const destinos = TRANSICIONES[i.estado] || [];
+        // "Resuelto" no va en el desplegable: se hace con el boton Resolver (pide la nota)
+        const opciones = destinos.filter((e) => e !== "Resuelto");
+
+        let estadoHtml;
+        if (gestor && opciones.length > 0) {
+          estadoHtml = `<select onchange="cambiarEstado(${i.id}, this.value)">` +
+            [i.estado, ...opciones]
+              .map((e) => `<option ${e === i.estado ? "selected" : ""}>${esc(e)}</option>`)
+              .join("") +
+            `</select>`;
+        } else {
+          estadoHtml = `<span class="etiqueta estado">${esc(i.estado)}</span>`;
+        }
+
+        let acciones = "";
+        if (gestor && destinos.includes("Resuelto")) {
+          acciones = `<button class="secundario" onclick="resolver(${i.id})">Resolver</button>`;
+        } else if (i.estado === "Resuelto" || i.estado === "Cerrado") {
+          acciones = "✔";
+        }
+
+        const nota = i.nota_resolucion
+          ? `<div class="nota">Resolución: ${esc(i.nota_resolucion)}</div>`
+          : "";
+
+        return `
+          <tr>
+            <td>${i.id}</td>
+            <td>${esc(i.titulo)}<div class="desc">${esc(i.descripcion)}</div>${nota}</td>
+            <td><span class="etiqueta p${esc(i.prioridad.charAt(1))}">${esc(i.prioridad)}</span></td>
+            <td class="pequeno">${esc(i.impacto)} / ${esc(i.urgencia)}</td>
+            <td>${estadoHtml}</td>
+            <td>${formatearFecha(i.creada_en)}</td>
+            <td>${acciones}</td>
+          </tr>`;
+      }).join("");
     }
 
     async function cambiarEstado(id, estado) {
-      await fetch(`${API}/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ estado })
-      });
+      try {
+        await api(`${API}/${id}`, { method: "PATCH", body: JSON.stringify({ estado }) });
+        ocultarMensaje();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
       cargar();
     }
 
     async function resolver(id) {
-      await fetch(`${API}/${id}/resolver`, { method: "POST" });
+      const nota = prompt("Nota de resolución (causa y solución, mínimo 5 caracteres):");
+      if (nota === null) return;
+      try {
+        await api(`${API}/${id}/resolver`, {
+          method: "POST",
+          body: JSON.stringify({ nota_resolucion: nota.trim() })
+        });
+        ocultarMensaje();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
       cargar();
     }
 
-    document.getElementById("formulario").addEventListener("submit", async (evento) => {
+    $("formIncidencia").addEventListener("submit", async (evento) => {
       evento.preventDefault();
-      const respuesta = await fetch(API, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          titulo: document.getElementById("titulo").value,
-          descripcion: document.getElementById("descripcion").value,
-          prioridad: document.getElementById("prioridad").value
-        })
-      });
-      if (!respuesta.ok) {
-        alert("No se pudo crear la incidencia. Revisa los datos.");
-        return;
+      const cuerpo = {
+        titulo: $("titulo").value,
+        descripcion: $("descripcion").value
+      };
+      if (esGestor()) {
+        cuerpo.impacto = $("impacto").value;
+        cuerpo.urgencia = $("urgencia").value;
       }
-      evento.target.reset();
-      cargar();
+      try {
+        await api(API, { method: "POST", body: JSON.stringify(cuerpo) });
+        evento.target.reset();
+        mostrarMensaje("Incidencia registrada", true);
+        cargar();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
     });
 
-    filtroEstado.addEventListener("change", cargar);
-    filtroPrioridad.addEventListener("change", cargar);
+    $("filtroEstado").addEventListener("change", cargar);
+    $("filtroPrioridad").addEventListener("change", cargar);
 
-    cargar();
+    // ---------- Arranque ----------
+    if (token && usuario) {
+      mostrarApp();
+    } else {
+      mostrarAcceso();
+    }
   </script>
 </body>
+
 </html>
