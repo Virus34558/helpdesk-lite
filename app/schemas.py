@@ -17,8 +17,12 @@ class UsuarioBase(BaseModel):
     departamento: str | None = Field(default=None, max_length=100)
 
 
-class UsuarioRegistro(UsuarioBase):
-    password: str = Field(min_length=6, max_length=128)
+class UsuarioRegistro(BaseModel):
+    # Sin campo "rol": el registro publico siempre crea un solicitante
+    email: EmailStr
+    nombre_completo: str = Field(min_length=2, max_length=150)
+    departamento: str | None = Field(default=None, max_length=100)
+    password: str = Field(min_length=8, max_length=128)
 
 
 class UsuarioLogin(BaseModel):
@@ -139,11 +143,11 @@ class IncidenciaRespuesta(BaseModel):
 
 
 class AutorComentarioRespuesta(BaseModel):
+    # Sin email: un solicitante no debe ver el correo corporativo de los tecnicos
     model_config = ConfigDict(from_attributes=True, use_enum_values=True)
 
     id: int
     nombre_completo: str
-    email: EmailStr
     rol: RolUsuario
 
 
@@ -162,4 +166,3 @@ class ComentarioRespuesta(BaseModel):
     contenido: str
     es_interno: bool
     creado_en: datetime
-
