@@ -40,6 +40,21 @@ class TokenRespuesta(BaseModel):
     usuario: UsuarioRespuesta
 
 
+class TipoTicket(str, Enum):
+    incidencia = "Incidencia"
+    solicitud = "Solicitud de Servicio"
+    problema = "Problema"
+    cambio = "Cambio"
+
+
+class CanalOrigen(str, Enum):
+    portal_web = "Portal Web"
+    email = "Email"
+    api = "API / Monitoreo"
+    telefono = "Teléfono"
+    chat = "Chat"
+
+
 class Impacto(str, Enum):
     bajo = "Bajo"
     medio = "Medio"
@@ -75,6 +90,8 @@ class IncidenciaCrear(BaseModel):
 
     titulo: str = Field(min_length=3, max_length=100)
     descripcion: str = ""
+    tipo: TipoTicket = TipoTicket.incidencia
+    canal_origen: CanalOrigen = CanalOrigen.portal_web
     impacto: Impacto = Impacto.bajo
     urgencia: Urgencia = Urgencia.media
 
@@ -84,10 +101,16 @@ class IncidenciaActualizar(BaseModel):
 
     titulo: str | None = Field(default=None, min_length=3, max_length=100)
     descripcion: str | None = None
+    tipo: TipoTicket | None = None
     impacto: Impacto | None = None
     urgencia: Urgencia | None = None
     estado: Estado | None = None
+    agente_asignado_id: int | None = None
     nota_resolucion: str | None = Field(default=None, min_length=5, max_length=1000)
+
+
+class AsignarAgente(BaseModel):
+    agente_id: int | None = None
 
 
 class ResolverIncidencia(BaseModel):
@@ -98,6 +121,9 @@ class IncidenciaRespuesta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    id_legible: str
+    tipo: TipoTicket
+    canal_origen: CanalOrigen
     titulo: str
     descripcion: str
     impacto: Impacto
@@ -106,6 +132,7 @@ class IncidenciaRespuesta(BaseModel):
     estado: Estado
     nota_resolucion: str | None
     solicitante_id: int
+    agente_asignado_id: int | None
     creada_en: datetime
     actualizada_en: datetime
     resuelta_en: datetime | None

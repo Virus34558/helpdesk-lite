@@ -195,6 +195,24 @@ def test_cerrado_es_inmutable(client, cuentas):
     assert reapertura.status_code == 409
 
 
+def test_cerrado_rechaza_edicion_de_campos(client, cuentas):
+    incidencia = crear(client, cuentas.solicitante.h).json()
+    poner_en_progreso(client, cuentas.agente.h, incidencia["id"])
+    resolver(client, cuentas.agente.h, incidencia["id"])
+    client.patch(
+        f"/incidencias/{incidencia['id']}",
+        json={"estado": "Cerrado"},
+        headers=cuentas.agente.h,
+    )
+    respuesta = client.patch(
+        f"/incidencias/{incidencia['id']}",
+        json={"titulo": "Nuevo título imposible"},
+        headers=cuentas.agente.h,
+    )
+    assert respuesta.status_code == 409
+    assert "No se pueden modificar incidencias en estado Cerrado" in respuesta.json()["detail"]
+
+
 def test_cambiar_impacto_y_urgencia_recalcula_prioridad(client, cuentas):
     incidencia = crear(client, cuentas.solicitante.h).json()
     assert incidencia["prioridad"] == "P4 - Baja"
@@ -204,3 +222,143 @@ def test_cambiar_impacto_y_urgencia_recalcula_prioridad(client, cuentas):
         headers=cuentas.agente.h,
     )
     assert respuesta.json()["prioridad"] == "P1 - Crítica"
+
+
+# ---------- Identificador legible y Tipología ----------
+
+def test_generacion_id_legible(client, cuentas):
+    respuesta = crear(client, cuentas.solicitante.h)
+    assert respuesta.status_code == 201
+    datos = respuesta.json()
+    assert "id_legible" in datos
+    assert datos["id_legible"].startswith("INC-")
+    assert datos["tipo"] == "Incidencia"
+    assert datos["canal_origen"] == "Portal Web"
+
+
+def test_crear_solicitud_de_servicio_genera_prefijo_req(client, cuentas):
+    respuesta = crear(
+        client, cuentas.solicitante.h, tipo="Solicitud de Servicio"
+    )
+    assert respuesta.status_code == 201
+    datos = respuesta.json()
+    assert datos["id_legible"].startswith("REQ-")
+    assert datos["tipo"] == "Solicitud de Servicio"
+
+
+def test_buscar_por_id_legible(client, cuentas):
+    incidencia = crear(client, cuentas.solicitante.h).json()
+    codigo = incidencia["id_legible"]
+
+    # Búsqueda por código legible tipo INC-2026-000001
+    respuesta = client.get(f"/incidencias/{codigo}", headers=cuentas.agente.h)
+    assert respuesta.status_code == 200
+    assert respuesta.json()["id"] == incidencia["id"]
+    assert respuesta.json()["id_legible"] == codigo
+
+
+# ---------- Asignación de Agente ----------
+
+def test_asignar_agente_a_incidencia(client, cuentas):
+    incidencia = crear(client, cuentas.solicitante.h).json()
+    assert incidencia["agente_asignado_id"] is None
+    assert incidencia["estado"] == "Nuevo"
+
+    # Agente toma/asigna el ticket
+    respuesta = client.post(
+        f"/incidencias/{incidencia['id']}/asignar",
+        json={"agente_id": cuentas.agente.id},
+        headers=cuentas.agente.h,
+    )
+    assert respuesta.status_code == 200
+    datos = respuesta.json()
+    assert datos["agente_asignado_id"] == cuentas.agente.id
+    # Al asignarse desde 'Nuevo', transiciona naturalmente a 'En progreso'
+    assert datos["estado"] == "En progreso"
+
+
+def test_asignar_a_solicitante_devuelve_400(client, cuentas):
+    incidencia = crear(client, cuentas.solicitante.h).json()
+    respuesta = client.post(
+        f"/incidencias/{incidencia['id']}/asignar",
+        json={"agente_id": cuentas.solicitante.id},
+        headers=cuentas.agente.h,
+    )
+    assert respuesta.status_code == 400
+    assert "Solo se pueden asignar incidencias a personal de soporte" in respuesta.json()["detail"]
+
+
+def test_asignar_a_usuario_inexistente_devuelve_404(client, cuentas):
+    incidencia = crear(client, cuentas.solicitante.h).json()
+    respuesta = client.post(
+        f"/incidencias/{incidencia['id']}/asignar",
+        json={"agente_id": 99999},
+        headers=cuentas.agente.h,
+    )
+    assert respuesta.status_code == 404
+
+
+def test_solicitante_no_puede_asignar(client, cuentas):
+    incidencia = crear(client, cuentas.solicitante.h).json()
+    respuesta = client.post(
+        f"/incidencias/{incidencia['id']}/asignar",
+        json={"agente_id": cuentas.agente.id},
+        headers=cuentas.solicitante.h,
+    )
+    assert respuesta.status_code == 403
+
+
+def test_desasignar_agente(client, cuentas):
+    incidencia = crear(client, cuentas.solicitante.h).json()
+    client.post(
+        f"/incidencias/{incidencia['id']}/asignar",
+        json={"agente_id": cuentas.agente.id},
+        headers=cuentas.agente.h,
+    )
+    # Desasignar pasando agente_id=None
+    respuesta = client.post(
+        f"/incidencias/{incidencia['id']}/asignar",
+        json={"agente_id": None},
+        headers=cuentas.agente.h,
+    )
+    assert respuesta.status_code == 200
+    assert respuesta.json()["agente_asignado_id"] is None
+
+
+def test_filtrar_por_tipo(client, cuentas):
+    crear(client, cuentas.solicitante.h, titulo="Fallo de red", tipo="Incidencia")
+    crear(client, cuentas.solicitante.h, titulo="Nuevo ratón", tipo="Solicitud de Servicio")
+
+    res = client.get(
+        "/incidencias", params={"tipo": "Solicitud de Servicio"}, headers=cuentas.agente.h
+    )
+    assert res.status_code == 200
+    items = res.json()
+    assert len(items) == 1
+    assert items[0]["tipo"] == "Solicitud de Servicio"
+
+
+def test_filtrar_por_agente_asignado_y_sin_asignar(client, cuentas):
+    ticket1 = crear(client, cuentas.solicitante.h, titulo="Ticket 1").json()
+    ticket2 = crear(client, cuentas.solicitante.h, titulo="Ticket 2").json()
+
+    # Asignar ticket 1 al agente
+    client.post(
+        f"/incidencias/{ticket1['id']}/asignar",
+        json={"agente_id": cuentas.agente.id},
+        headers=cuentas.agente.h,
+    )
+
+    # Filtrar por agente
+    res_agente = client.get(
+        "/incidencias", params={"agente_asignado_id": cuentas.agente.id}, headers=cuentas.agente.h
+    )
+    assert len(res_agente.json()) == 1
+    assert res_agente.json()[0]["id"] == ticket1["id"]
+
+    # Filtrar sin asignar
+    res_sin_asignar = client.get(
+        "/incidencias", params={"sin_asignar": True}, headers=cuentas.agente.h
+    )
+    assert len(res_sin_asignar.json()) == 1
+    assert res_sin_asignar.json()[0]["id"] == ticket2["id"]

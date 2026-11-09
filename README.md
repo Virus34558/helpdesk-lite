@@ -13,12 +13,17 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 ## Qué permite hacer
 
 ### Gestión de incidencias
-- Crear incidencias con título y descripción.
+- Crear tickets con título, descripción, tipo y canal de origen.
+- **Identificador único legible e indexado:** generación automática de códigos amigables según el tipo (ej: `INC-2026-000001` para Incidencias, `REQ-2026-000001` para Solicitudes de Servicio).
+- **Tipología ITSM:** `Incidencia`, `Solicitud de Servicio`, `Problema` y `Cambio`.
+- **Canales de origen:** `Portal Web`, `Email`, `API / Monitoreo`, `Teléfono`, `Chat`.
+- **Asignación de técnicos:** asignación de incidencias a agentes con validación de rol (un solicitante no puede ser asignado). Al asignarse desde `Nuevo`, transiciona automáticamente a `En progreso`.
 - **Prioridad calculada automáticamente** a partir de impacto y urgencia (matriz ITIL, P1 a P4).
-- **Flujo de estados con reglas:** Nuevo, En progreso, Pendiente de usuario, Pendiente de tercero, Resuelto, Cerrado y Cancelado. Las transiciones no permitidas se rechazan.
-- Para resolver una incidencia es **obligatorio** escribir una nota de resolución (causa y solución).
-- Cerrado y Cancelado son estados finales: no se puede volver a abrir.
-- Filtrar por estado y por prioridad.
+- **Flujo de estados con reglas:** Nuevo, En progreso, Pendiente de usuario, Pendiente de tercero, Resuelto, Cerrado y Cancelado. Las transiciones no permitidas se rechazan con `409 Conflict`.
+- Para resolver una incidencia es **obligatorio** escribir una nota de resolución (causa raíz y solución).
+- **Inmutabilidad total:** Cerrado y Cancelado son estados finales e inmutables (se bloquea cualquier modificación o asignación).
+- **Filtros completos:** por estado, prioridad, tipo de ticket, técnico asignado (`?agente_asignado_id=`) o tickets sin asignar (`?sin_asignar=true`).
+- **Búsqueda flexible:** consulta por ID numérico (`/incidencias/1`) o por código legible (`/incidencias/INC-2026-000001`).
 
 ### Usuarios y control de acceso (RBAC)
 - **4 roles:** `solicitante` (usuario final), `agente`, `supervisor` y `administrador`.
@@ -43,7 +48,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 53 tests automáticos (incidencias, autenticación, permisos y reglas ITIL)
+- **pytest**: 65 tests automáticos (incidencias, autenticación, permisos, asignación y reglas ITIL)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -66,11 +71,12 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 
 | Acción | Método y ruta | Acceso |
 |---|---|---|
-| Crear incidencia | `POST /incidencias` | Autenticado |
-| Listar (con filtros) | `GET /incidencias?estado=Nuevo&prioridad=P1 - Crítica` | Autenticado (el solicitante solo ve las suyas) |
-| Consultar una | `GET /incidencias/{id}` | Autenticado (idem) |
-| Actualizar estado, impacto o urgencia | `PATCH /incidencias/{id}` | `agente`, `supervisor`, `administrador` |
-| Resolver (con nota obligatoria) | `POST /incidencias/{id}/resolver` | `agente`, `supervisor`, `administrador` |
+| Crear incidencia / ticket | `POST /incidencias` | Autenticado |
+| Listar (con filtros: estado, prioridad, tipo, agente, sin asignar) | `GET /incidencias?estado=Nuevo&prioridad=P1 - Crítica&tipo=Incidencia&sin_asignar=true` | Autenticado (el solicitante solo ve las suyas) |
+| Consultar una (por ID numérico o código legible) | `GET /incidencias/{id_o_codigo}` | Autenticado (idem) |
+| Asignar o desasignar técnico | `POST /incidencias/{id_o_codigo}/asignar` | `agente`, `supervisor`, `administrador` |
+| Actualizar estado, impacto o urgencia | `PATCH /incidencias/{id_o_codigo}` | `agente`, `supervisor`, `administrador` |
+| Resolver (con nota obligatoria) | `POST /incidencias/{id_o_codigo}/resolver` | `agente`, `supervisor`, `administrador` |
 
 Documentación interactiva en `/docs`:
 
@@ -147,15 +153,16 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Autenticación y roles (`solicitante`, `agente`, `supervisor`, `administrador`)
 - [x] Matriz ITIL (impacto x urgencia = prioridad P1 a P4)
 - [x] Máquina de estados con 7 estados y nota de resolución obligatoria
-- [ ] Bloquear por completo la edición de tickets en estado Cerrado
-- [ ] Identificador legible (`INC-2026-000142`), tipo de ticket y categorías
-- [ ] Asignación de incidencias a agentes
-- [ ] Comentarios públicos y notas internas
+- [x] Bloquear por completo la edición de tickets en estado Cerrado o Cancelado
+- [x] Identificador legible (`INC-2026-000142`, `REQ-2026-000001`), tipología de tickets y canales de origen
+- [x] Asignación de incidencias a agentes (con validación de rol, auto-transición y filtros)
+- [ ] Comentarios públicos y notas internas (comunicación dual)
 - [ ] Historial de auditoría inmutable
 - [ ] SLA con calendario laboral y pausas
+- [ ] Base de Conocimiento (Knowledge Base)
 - [ ] Dashboard con KPIs y exportación a CSV
 - [ ] Migraciones con Alembic
-- [ ] Paginación y búsqueda
+- [ ] Paginación y búsqueda全文
 
 ## Autor
 

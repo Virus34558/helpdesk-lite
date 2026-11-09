@@ -12,6 +12,21 @@ class RolUsuario(str, enum.Enum):
     ADMINISTRADOR = "administrador"
 
 
+class TipoTicket(str, enum.Enum):
+    INCIDENCIA = "Incidencia"
+    SOLICITUD = "Solicitud de Servicio"
+    PROBLEMA = "Problema"
+    CAMBIO = "Cambio"
+
+
+class CanalOrigen(str, enum.Enum):
+    PORTAL_WEB = "Portal Web"
+    EMAIL = "Email"
+    API = "API / Monitoreo"
+    TELEFONO = "Teléfono"
+    CHAT = "Chat"
+
+
 class Usuario(Base):
     __tablename__ = "usuarios"
 
@@ -29,6 +44,9 @@ class Incidencia(Base):
     __tablename__ = "incidencias"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    id_legible: Mapped[str] = mapped_column(String(30), unique=True, index=True)
+    tipo: Mapped[str] = mapped_column(String(30), default=TipoTicket.INCIDENCIA.value)
+    canal_origen: Mapped[str] = mapped_column(String(30), default=CanalOrigen.PORTAL_WEB.value)
     titulo: Mapped[str] = mapped_column(String(100))
     descripcion: Mapped[str] = mapped_column(Text, default="")
     impacto: Mapped[str] = mapped_column(String(10), default="Bajo")
@@ -37,6 +55,9 @@ class Incidencia(Base):
     estado: Mapped[str] = mapped_column(String(25), default="Nuevo")
     nota_resolucion: Mapped[str | None] = mapped_column(Text, nullable=True)
     solicitante_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    agente_asignado_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id"), nullable=True, index=True
+    )
     creada_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     actualizada_en: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.now, onupdate=datetime.now

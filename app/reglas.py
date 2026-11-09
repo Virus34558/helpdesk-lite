@@ -1,4 +1,13 @@
+from datetime import datetime
 from enum import Enum
+
+# Prefijos por tipo de ticket según especificación ITSM
+PREFIJOS_TIPO = {
+    "Incidencia": "INC",
+    "Solicitud de Servicio": "REQ",
+    "Problema": "PRB",
+    "Cambio": "CHG",
+}
 
 # Matriz ITIL: (impacto, urgencia) -> prioridad
 MATRIZ_PRIORIDAD = {
@@ -39,3 +48,11 @@ def calcular_prioridad(impacto, urgencia) -> str:
 
 def transicion_permitida(actual, nuevo) -> bool:
     return _valor(nuevo) in TRANSICIONES.get(_valor(actual), set())
+
+
+def generar_id_legible(tipo, secuencia: int, anio: int | None = None) -> str:
+    """Genera un identificador único amigable indexado (ej: INC-2026-000042)."""
+    prefijo = PREFIJOS_TIPO.get(_valor(tipo), "INC")
+    if anio is None:
+        anio = datetime.now().year
+    return f"{prefijo}-{anio}-{secuencia:06d}"

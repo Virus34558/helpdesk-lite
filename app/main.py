@@ -1,7 +1,8 @@
+import secrets
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -14,12 +15,12 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="HelpDesk Lite - ITSM",
     description="Sistema de Gestión de Helpdesk y Soporte Técnico (ITSM)",
-    version="1.2.0",
+    version="1.3.0",
 )
 
 app.include_router(auth_router.router)
 
-# Quien puede gestionar incidencias (cambiar estado, impacto, resolver...)
+# Quien puede gestionar incidencias (cambiar estado, impacto, asignar, resolver...)
 solo_gestores = auth.require_roles(
     models.RolUsuario.AGENTE,
     models.RolUsuario.SUPERVISOR,
@@ -36,21 +37,40 @@ def _es_solicitante(usuario: models.Usuario) -> bool:
     return usuario.rol == models.RolUsuario.SOLICITANTE.value
 
 
-def _buscar_visible(db: Session, incidencia_id: int, usuario: models.Usuario):
+def _buscar_por_id_o_codigo(db: Session, identificador: str) -> models.Incidencia:
+    """Busca una incidencia por su ID numérico o por su id_legible (ej: INC-2026-000001)."""
+    if identificador.isascii() and identificador.isdigit() and len(identificador) <= 9:
+        incidencia = db.get(models.Incidencia, int(identificador))
+    else:
+        incidencia = (
+            db.query(models.Incidencia)
+            .filter(models.Incidencia.id_legible == identificador.upper().strip())
+            .first()
+        )
+    if incidencia is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Incidencia no encontrada",
+        )
+    return incidencia
+
+
+def _buscar_visible(db: Session, identificador: str, usuario: models.Usuario):
     """Devuelve la incidencia o 404. Un solicitante solo ve las suyas."""
-    incidencia = db.get(models.Incidencia, incidencia_id)
-    if incidencia is None or (
-        _es_solicitante(usuario) and incidencia.solicitante_id != usuario.id
-    ):
-        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+    incidencia = _buscar_por_id_o_codigo(db, identificador)
+    if _es_solicitante(usuario) and incidencia.solicitante_id != usuario.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Incidencia no encontrada",
+        )
     return incidencia
 
 
 def _cambiar_estado(incidencia: models.Incidencia, nuevo: str, nota: str | None):
-    """Valida la transicion y aplica las reglas de negocio del cambio de estado."""
+    """Valida la transición y aplica las reglas de negocio del cambio de estado."""
     if not reglas.transicion_permitida(incidencia.estado, nuevo):
         raise HTTPException(
-            status_code=409,
+            status_code=status.HTTP_409_CONFLICT,
             detail=f"Transición no permitida: {incidencia.estado} -> {nuevo}",
         )
     if nuevo == "Resuelto":
@@ -66,6 +86,33 @@ def _cambiar_estado(incidencia: models.Incidencia, nuevo: str, nota: str | None)
     incidencia.estado = nuevo
 
 
+def _validar_y_asignar_agente(
+    db: Session, incidencia: models.Incidencia, agente_id: int | None
+):
+    """Valida que el usuario a asignar sea un técnico (agente, supervisor o admin)."""
+    if agente_id is None:
+        incidencia.agente_asignado_id = None
+        return
+
+    agente = db.get(models.Usuario, agente_id)
+    if not agente or not agente.activo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuario técnico no encontrado o inactivo",
+        )
+    if agente.rol == models.RolUsuario.SOLICITANTE.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo se pueden asignar incidencias a personal de soporte (agente, supervisor o administrador)",
+        )
+
+    incidencia.agente_asignado_id = agente.id
+
+    # Si la incidencia estaba en 'Nuevo', al asignarse pasa a 'En progreso'
+    if incidencia.estado == "Nuevo":
+        incidencia.estado = "En progreso"
+
+
 @app.post("/incidencias", response_model=schemas.IncidenciaRespuesta, status_code=201)
 def crear_incidencia(
     datos: schemas.IncidenciaCrear,
@@ -73,17 +120,29 @@ def crear_incidencia(
     usuario: models.Usuario = Depends(auth.get_current_user),
 ):
     valores = datos.model_dump()
+
     if _es_solicitante(usuario):
+        tipo = getattr(valores["tipo"], "value", valores["tipo"])
+        if tipo not in ("Incidencia", "Solicitud de Servicio"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Un solicitante solo puede crear Incidencias o Solicitudes de servicio",
+            )
         # Impacto y urgencia los fija el personal de soporte, no el solicitante
         valores["impacto"] = "Bajo"
         valores["urgencia"] = "Media"
+        # El canal de origen lo decide el sistema, no el usuario
+        valores["canal_origen"] = "Portal Web"
 
     incidencia = models.Incidencia(
         **valores,
+        id_legible="TMP-" + secrets.token_hex(4),  # provisional, se sustituye abajo
         prioridad=reglas.calcular_prioridad(valores["impacto"], valores["urgencia"]),
         solicitante_id=usuario.id,
     )
     db.add(incidencia)
+    db.flush()  # la base de datos asigna el id, que es único
+    incidencia.id_legible = reglas.generar_id_legible(valores["tipo"], incidencia.id)
     db.commit()
     db.refresh(incidencia)
     return incidencia
@@ -93,6 +152,10 @@ def crear_incidencia(
 def listar_incidencias(
     estado: schemas.Estado | None = None,
     prioridad: schemas.Prioridad | None = None,
+    tipo: schemas.TipoTicket | None = None,
+    canal_origen: schemas.CanalOrigen | None = None,
+    agente_asignado_id: int | None = None,
+    sin_asignar: bool | None = None,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(auth.get_current_user),
 ):
@@ -103,28 +166,43 @@ def listar_incidencias(
         consulta = consulta.filter(models.Incidencia.estado == estado.value)
     if prioridad:
         consulta = consulta.filter(models.Incidencia.prioridad == prioridad.value)
+    if tipo:
+        consulta = consulta.filter(models.Incidencia.tipo == tipo.value)
+    if canal_origen:
+        consulta = consulta.filter(models.Incidencia.canal_origen == canal_origen.value)
+    if agente_asignado_id is not None:
+        consulta = consulta.filter(
+            models.Incidencia.agente_asignado_id == agente_asignado_id
+        )
+    if sin_asignar is True:
+        consulta = consulta.filter(models.Incidencia.agente_asignado_id.is_(None))
+
     return consulta.order_by(models.Incidencia.id.desc()).all()
 
 
-@app.get("/incidencias/{incidencia_id}", response_model=schemas.IncidenciaRespuesta)
+@app.get("/incidencias/{identificador}", response_model=schemas.IncidenciaRespuesta)
 def obtener_incidencia(
-    incidencia_id: int,
+    identificador: str,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(auth.get_current_user),
 ):
-    return _buscar_visible(db, incidencia_id, usuario)
+    return _buscar_visible(db, identificador, usuario)
 
 
-@app.patch("/incidencias/{incidencia_id}", response_model=schemas.IncidenciaRespuesta)
+@app.patch("/incidencias/{identificador}", response_model=schemas.IncidenciaRespuesta)
 def actualizar_incidencia(
-    incidencia_id: int,
+    identificador: str,
     datos: schemas.IncidenciaActualizar,
     db: Session = Depends(get_db),
     _gestor: models.Usuario = Depends(solo_gestores),
 ):
-    incidencia = db.get(models.Incidencia, incidencia_id)
-    if incidencia is None:
-        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
+    incidencia = _buscar_por_id_o_codigo(db, identificador)
+
+    if incidencia.estado in ("Cerrado", "Cancelado"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se pueden modificar incidencias en estado {incidencia.estado}",
+        )
 
     cambios = datos.model_dump(exclude_unset=True)
     nuevo_estado = cambios.pop("estado", None)
@@ -133,6 +211,10 @@ def actualizar_incidencia(
     # Primero se valida el estado: si falla, no se ha modificado nada
     if nuevo_estado is not None and nuevo_estado != incidencia.estado:
         _cambiar_estado(incidencia, nuevo_estado, nota)
+
+    if "agente_asignado_id" in cambios:
+        agente_id = cambios.pop("agente_asignado_id")
+        _validar_y_asignar_agente(db, incidencia, agente_id)
 
     for campo, valor in cambios.items():
         if valor is not None:
@@ -147,17 +229,41 @@ def actualizar_incidencia(
     return incidencia
 
 
-@app.post("/incidencias/{incidencia_id}/resolver", response_model=schemas.IncidenciaRespuesta)
+@app.post(
+    "/incidencias/{identificador}/asignar",
+    response_model=schemas.IncidenciaRespuesta,
+    summary="Asignar o desasignar técnico (Solo personal de soporte)",
+)
+def asignar_incidencia(
+    identificador: str,
+    datos: schemas.AsignarAgente,
+    db: Session = Depends(get_db),
+    _gestor: models.Usuario = Depends(solo_gestores),
+):
+    incidencia = _buscar_por_id_o_codigo(db, identificador)
+    if incidencia.estado in ("Cerrado", "Cancelado"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede asignar personal a una incidencia en estado {incidencia.estado}",
+        )
+    _validar_y_asignar_agente(db, incidencia, datos.agente_id)
+    db.commit()
+    db.refresh(incidencia)
+    return incidencia
+
+
+@app.post(
+    "/incidencias/{identificador}/resolver",
+    response_model=schemas.IncidenciaRespuesta,
+    summary="Resolver una incidencia con nota obligatoria",
+)
 def resolver_incidencia(
-    incidencia_id: int,
+    identificador: str,
     datos: schemas.ResolverIncidencia,
     db: Session = Depends(get_db),
     _gestor: models.Usuario = Depends(solo_gestores),
 ):
-    incidencia = db.get(models.Incidencia, incidencia_id)
-    if incidencia is None:
-        raise HTTPException(status_code=404, detail="Incidencia no encontrada")
-
+    incidencia = _buscar_por_id_o_codigo(db, identificador)
     _cambiar_estado(incidencia, "Resuelto", datos.nota_resolucion)
     db.commit()
     db.refresh(incidencia)

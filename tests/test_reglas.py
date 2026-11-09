@@ -1,6 +1,6 @@
 import pytest
 
-from app.reglas import calcular_prioridad, transicion_permitida
+from app.reglas import calcular_prioridad, transicion_permitida, generar_id_legible
 
 MATRIZ = [
     ("Alto", "Crítica", "P1 - Crítica"),
@@ -49,3 +49,11 @@ def test_transiciones_permitidas(actual, nuevo):
 )
 def test_transiciones_prohibidas(actual, nuevo):
     assert not transicion_permitida(actual, nuevo)
+
+
+def test_generar_id_legible_prefijos_y_formato():
+    assert generar_id_legible("Incidencia", 42, anio=2026) == "INC-2026-000042"
+    assert generar_id_legible("Solicitud de Servicio", 7, anio=2026) == "REQ-2026-000007"
+    assert generar_id_legible("Problema", 1, anio=2026) == "PRB-2026-000001"
+    assert generar_id_legible("Cambio", 500, anio=2026) == "CHG-2026-000500"
+    assert generar_id_legible("Otro", 99, anio=2026) == "INC-2026-000099"
