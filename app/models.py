@@ -1,7 +1,7 @@
 import enum
 from datetime import datetime
 from sqlalchemy import String, Text, DateTime, Boolean, ForeignKey
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
 
@@ -63,3 +63,25 @@ class Incidencia(Base):
         DateTime, default=datetime.now, onupdate=datetime.now
     )
     resuelta_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+    comentarios: Mapped[list["Comentario"]] = relationship(
+        back_populates="incidencia",
+        cascade="all, delete-orphan",
+        order_by="Comentario.creado_en.asc()",
+    )
+
+
+class Comentario(Base):
+    __tablename__ = "comentarios"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    incidencia_id: Mapped[int] = mapped_column(
+        ForeignKey("incidencias.id"), index=True
+    )
+    autor_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    contenido: Mapped[str] = mapped_column(Text)
+    es_interno: Mapped[bool] = mapped_column(Boolean, default=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    autor: Mapped["Usuario"] = relationship()
+    incidencia: Mapped["Incidencia"] = relationship(back_populates="comentarios")

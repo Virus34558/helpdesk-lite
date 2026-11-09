@@ -136,3 +136,30 @@ class IncidenciaRespuesta(BaseModel):
     creada_en: datetime
     actualizada_en: datetime
     resuelta_en: datetime | None
+
+
+class AutorComentarioRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+
+    id: int
+    nombre_completo: str
+    email: EmailStr
+    rol: RolUsuario
+
+
+class ComentarioCrear(BaseModel):
+    contenido: str = Field(min_length=1, max_length=5000)
+    es_interno: bool = False
+
+
+class ComentarioRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+
+    id: int
+    incidencia_id: int
+    autor_id: int
+    autor: AutorComentarioRespuesta
+    contenido: str
+    es_interno: bool
+    creado_en: datetime
+

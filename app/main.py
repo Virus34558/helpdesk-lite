@@ -15,7 +15,7 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="HelpDesk Lite - ITSM",
     description="Sistema de Gestión de Helpdesk y Soporte Técnico (ITSM)",
-    version="1.3.0",
+    version="1.4.0",
 )
 
 app.include_router(auth_router.router)
@@ -268,3 +268,71 @@ def resolver_incidencia(
     db.commit()
     db.refresh(incidencia)
     return incidencia
+
+
+@app.post(
+    "/incidencias/{identificador}/comentarios",
+    response_model=schemas.ComentarioRespuesta,
+    status_code=status.HTTP_201_CREATED,
+    summary="Añadir comentario al hilo (Respuesta pública o Nota interna)",
+)
+def agregar_comentario(
+    identificador: str,
+    datos: schemas.ComentarioCrear,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+
+    if incidencia.estado in ("Cerrado", "Cancelado"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se pueden añadir comentarios a una incidencia en estado {incidencia.estado}",
+        )
+
+    # Regla RBAC: un solicitante no puede publicar notas internas
+    if _es_solicitante(usuario) and datos.es_interno:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Los solicitantes no tienen permiso para crear notas internas",
+        )
+
+    es_interno = False if _es_solicitante(usuario) else datos.es_interno
+
+    # Regla ITIL: si el solicitante responde estando 'Pendiente de usuario',
+    # el ticket se reactiva automáticamente a 'En progreso'
+    if _es_solicitante(usuario) and incidencia.estado == "Pendiente de usuario":
+        incidencia.estado = "En progreso"
+
+    comentario = models.Comentario(
+        incidencia_id=incidencia.id,
+        autor_id=usuario.id,
+        contenido=datos.contenido.strip(),
+        es_interno=es_interno,
+    )
+    db.add(comentario)
+    db.commit()
+    db.refresh(comentario)
+    return comentario
+
+
+@app.get(
+    "/incidencias/{identificador}/comentarios",
+    response_model=list[schemas.ComentarioRespuesta],
+    summary="Listar hilo de conversación de la incidencia",
+)
+def listar_comentarios(
+    identificador: str,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+
+    consulta = db.query(models.Comentario).filter(
+        models.Comentario.incidencia_id == incidencia.id
+    )
+    # Regla RBAC: el solicitante jamás ve las notas internas de los técnicos
+    if _es_solicitante(usuario):
+        consulta = consulta.filter(models.Comentario.es_interno.is_(False))
+
+    return consulta.order_by(models.Comentario.creado_en.asc()).all()

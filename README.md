@@ -24,6 +24,8 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Inmutabilidad total:** Cerrado y Cancelado son estados finales e inmutables (se bloquea cualquier modificación o asignación).
 - **Filtros completos:** por estado, prioridad, tipo de ticket, técnico asignado (`?agente_asignado_id=`) o tickets sin asignar (`?sin_asignar=true`).
 - **Búsqueda flexible:** consulta por ID numérico (`/incidencias/1`) o por código legible (`/incidencias/INC-2026-000001`).
+- **Comunicación dual en hilo cronológico:** respuestas públicas para interactuar con el solicitante y notas internas privadas confidenciales exclusivas para el equipo técnico.
+- **Reactivación automática (ITIL):** cuando un solicitante responde a una incidencia en estado `Pendiente de usuario`, esta pasa automáticamente a `En progreso`.
 
 ### Usuarios y control de acceso (RBAC)
 - **4 roles:** `solicitante` (usuario final), `agente`, `supervisor` y `administrador`.
@@ -48,7 +50,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 65 tests automáticos (incidencias, autenticación, permisos, asignación y reglas ITIL)
+- **pytest**: 79 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas y seguridad)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -77,6 +79,8 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Asignar o desasignar técnico | `POST /incidencias/{id_o_codigo}/asignar` | `agente`, `supervisor`, `administrador` |
 | Actualizar estado, impacto o urgencia | `PATCH /incidencias/{id_o_codigo}` | `agente`, `supervisor`, `administrador` |
 | Resolver (con nota obligatoria) | `POST /incidencias/{id_o_codigo}/resolver` | `agente`, `supervisor`, `administrador` |
+| Añadir comentario (público o nota interna) | `POST /incidencias/{id_o_codigo}/comentarios` | Autenticado (nota interna solo técnicos) |
+| Listar hilo de comentarios | `GET /incidencias/{id_o_codigo}/comentarios` | Autenticado (solicitante no ve notas internas) |
 
 Documentación interactiva en `/docs`:
 
@@ -132,12 +136,17 @@ helpdesk-lite/
 |   |-- auth.py          # bcrypt, JWT y dependencias de permisos
 |   |-- database.py      # Conexión a la base de datos
 |   |-- main.py          # Aplicación FastAPI y endpoints de incidencias
-|   |-- models.py        # Modelos (Usuario, Incidencia)
+|   |-- models.py        # Modelos (Usuario, Incidencia, Comentario)
 |   |-- reglas.py        # Matriz ITIL y máquina de estados
 |   |-- schemas.py       # Validación de datos (Pydantic)
 |   `-- static/
 |       `-- index.html   # Interfaz web
-|-- tests/               # Tests con pytest
+|-- tests/
+|   |-- test_auth.py               # Tests de autenticación y RBAC
+|   |-- test_comentarios.py        # Tests de respuestas públicas y notas internas
+|   |-- test_incidencias.py        # Tests de tickets, estados y asignación
+|   |-- test_reglas.py             # Tests de matriz ITIL y máquina de estados
+|   `-- test_seguridad_tickets.py  # Tests de permisos y restricciones de seguridad
 |-- docs/                # Capturas del README
 |-- .github/workflows/   # GitHub Actions
 |-- Dockerfile
@@ -156,7 +165,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Bloquear por completo la edición de tickets en estado Cerrado o Cancelado
 - [x] Identificador legible (`INC-2026-000142`, `REQ-2026-000001`), tipología de tickets y canales de origen
 - [x] Asignación de incidencias a agentes (con validación de rol, auto-transición y filtros)
-- [ ] Comentarios públicos y notas internas (comunicación dual)
+- [x] Comentarios públicos y notas internas (comunicación dual)
 - [ ] Historial de auditoría inmutable
 - [ ] SLA con calendario laboral y pausas
 - [ ] Base de Conocimiento (Knowledge Base)
