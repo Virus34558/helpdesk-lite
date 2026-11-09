@@ -69,6 +69,11 @@ class Incidencia(Base):
         cascade="all, delete-orphan",
         order_by="Comentario.creado_en.asc()",
     )
+    auditorias: Mapped[list["RegistroAuditoria"]] = relationship(
+        back_populates="incidencia",
+        cascade="all, delete-orphan",
+        order_by="RegistroAuditoria.creado_en.asc()",
+    )
 
 
 class Comentario(Base):
@@ -85,3 +90,24 @@ class Comentario(Base):
 
     autor: Mapped["Usuario"] = relationship()
     incidencia: Mapped["Incidencia"] = relationship(back_populates="comentarios")
+
+
+class RegistroAuditoria(Base):
+    __tablename__ = "registros_auditoria"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    incidencia_id: Mapped[int] = mapped_column(
+        ForeignKey("incidencias.id"), index=True
+    )
+    usuario_id: Mapped[int | None] = mapped_column(
+        ForeignKey("usuarios.id"), nullable=True, index=True
+    )
+    accion: Mapped[str] = mapped_column(String(50))
+    campo: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    valor_anterior: Mapped[str | None] = mapped_column(Text, nullable=True)
+    valor_nuevo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    es_interno: Mapped[bool] = mapped_column(Boolean, default=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    usuario: Mapped["Usuario | None"] = relationship()
+    incidencia: Mapped["Incidencia"] = relationship(back_populates="auditorias")

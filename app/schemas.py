@@ -166,3 +166,49 @@ class ComentarioRespuesta(BaseModel):
     contenido: str
     es_interno: bool
     creado_en: datetime
+
+
+class AutorAuditoriaRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+
+    id: int
+    nombre_completo: str
+    rol: RolUsuario
+
+
+class RegistroAuditoriaRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+
+    id: int
+    incidencia_id: int
+    usuario_id: int | None
+    usuario: AutorAuditoriaRespuesta | None
+    accion: str
+    campo: str | None
+    valor_anterior: str | None
+    valor_nuevo: str | None
+    es_interno: bool
+    creado_en: datetime
+
+
+class AutorAuditoriaRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+
+    id: int
+    nombre_completo: str
+    rol: RolUsuario
+
+
+class RegistroAuditoriaRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True, use_enum_values=True)
+
+    id: int
+    incidencia_id: int
+    usuario_id: int | None
+    usuario: AutorAuditoriaRespuesta | None
+    accion: str
+    campo: str | None
+    valor_anterior: str | None
+    valor_nuevo: str | None
+    es_interno: bool
+    creado_en: datetime

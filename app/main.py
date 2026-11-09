@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from . import auth, models, reglas, schemas
+from . import auditoria, auth, models, reglas, schemas
 from .database import engine, get_db
 from .routers import auth as auth_router
 
@@ -143,6 +143,14 @@ def crear_incidencia(
     db.add(incidencia)
     db.flush()  # la base de datos asigna el id, que es único
     incidencia.id_legible = reglas.generar_id_legible(valores["tipo"], incidencia.id)
+    auditoria.registrar_evento(
+        db,
+        incidencia_id=incidencia.id,
+        usuario_id=usuario.id,
+        accion="creacion",
+        campo="id_legible",
+        valor_nuevo=incidencia.id_legible,
+    )
     db.commit()
     db.refresh(incidencia)
     return incidencia
@@ -208,21 +216,64 @@ def actualizar_incidencia(
     nuevo_estado = cambios.pop("estado", None)
     nota = cambios.pop("nota_resolucion", None)
 
+    estado_anterior = incidencia.estado
+    prioridad_anterior = incidencia.prioridad
+    agente_anterior = incidencia.agente_asignado_id
+
     # Primero se valida el estado: si falla, no se ha modificado nada
     if nuevo_estado is not None and nuevo_estado != incidencia.estado:
         _cambiar_estado(incidencia, nuevo_estado, nota)
+        auditoria.registrar_evento(
+            db,
+            incidencia.id,
+            _gestor.id,
+            accion="cambio_estado",
+            campo="estado",
+            valor_anterior=estado_anterior,
+            valor_nuevo=nuevo_estado,
+        )
 
     if "agente_asignado_id" in cambios:
         agente_id = cambios.pop("agente_asignado_id")
         _validar_y_asignar_agente(db, incidencia, agente_id)
+        auditoria.registrar_evento(
+            db,
+            incidencia.id,
+            _gestor.id,
+            accion="asignacion_tecnico",
+            campo="agente_asignado_id",
+            valor_anterior=str(agente_anterior) if agente_anterior else None,
+            valor_nuevo=str(agente_id) if agente_id else None,
+        )
 
     for campo, valor in cambios.items():
         if valor is not None:
-            setattr(incidencia, campo, valor)
+            valor_ant = getattr(incidencia, campo, None)
+            if valor_ant != valor:
+                setattr(incidencia, campo, valor)
+                auditoria.registrar_evento(
+                    db,
+                    incidencia.id,
+                    _gestor.id,
+                    accion="modificacion",
+                    campo=campo,
+                    valor_anterior=str(valor_ant) if valor_ant is not None else None,
+                    valor_nuevo=str(valor),
+                )
 
     incidencia.prioridad = reglas.calcular_prioridad(
         incidencia.impacto, incidencia.urgencia
     )
+    if incidencia.prioridad != prioridad_anterior:
+        auditoria.registrar_evento(
+            db,
+            incidencia.id,
+            _gestor.id,
+            accion="cambio_prioridad",
+            campo="prioridad",
+            valor_anterior=prioridad_anterior,
+            valor_nuevo=incidencia.prioridad,
+        )
 
     db.commit()
     db.refresh(incidencia)
@@ -246,7 +297,17 @@ def asignar_incidencia(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"No se puede asignar personal a una incidencia en estado {incidencia.estado}",
         )
+    agente_anterior = incidencia.agente_asignado_id
     _validar_y_asignar_agente(db, incidencia, datos.agente_id)
+    auditoria.registrar_evento(
+        db,
+        incidencia.id,
+        _gestor.id,
+        accion="asignacion_tecnico",
+        campo="agente_asignado_id",
+        valor_anterior=str(agente_anterior) if agente_anterior else None,
+        valor_nuevo=str(datos.agente_id) if datos.agente_id else None,
+    )
     db.commit()
     db.refresh(incidencia)
     return incidencia
@@ -264,7 +325,17 @@ def resolver_incidencia(
     _gestor: models.Usuario = Depends(solo_gestores),
 ):
     incidencia = _buscar_por_id_o_codigo(db, identificador)
+    estado_anterior = incidencia.estado
     _cambiar_estado(incidencia, "Resuelto", datos.nota_resolucion)
+    auditoria.registrar_evento(
+        db,
+        incidencia.id,
+        _gestor.id,
+        accion="resolucion",
+        campo="nota_resolucion",
+        valor_anterior=estado_anterior,
+        valor_nuevo=datos.nota_resolucion,
+    )
     db.commit()
     db.refresh(incidencia)
     return incidencia
@@ -302,7 +373,17 @@ def agregar_comentario(
     # Regla ITIL: si el solicitante responde estando 'Pendiente de usuario',
     # el ticket se reactiva automáticamente a 'En progreso'
     if _es_solicitante(usuario) and incidencia.estado == "Pendiente de usuario":
+        estado_ant = incidencia.estado
         incidencia.estado = "En progreso"
+        auditoria.registrar_evento(
+            db,
+            incidencia.id,
+            usuario.id,
+            accion="reactivacion_automatica",
+            campo="estado",
+            valor_anterior=estado_ant,
+            valor_nuevo="En progreso",
+        )
 
     comentario = models.Comentario(
         incidencia_id=incidencia.id,
@@ -311,6 +392,16 @@ def agregar_comentario(
         es_interno=es_interno,
     )
     db.add(comentario)
+    db.flush()
+    auditoria.registrar_evento(
+        db,
+        incidencia_id=incidencia.id,
+        usuario_id=usuario.id,
+        accion="nota_interna" if es_interno else "comentario_publico",
+        campo="comentarios",
+        valor_nuevo=str(comentario.id),
+        es_interno=es_interno,
+    )
     db.commit()
     db.refresh(comentario)
     return comentario
@@ -336,3 +427,48 @@ def listar_comentarios(
         consulta = consulta.filter(models.Comentario.es_interno.is_(False))
 
     return consulta.order_by(models.Comentario.creado_en.asc()).all()
+
+
+@app.get(
+    "/incidencias/{identificador}/historial",
+    response_model=list[schemas.RegistroAuditoriaRespuesta],
+    summary="Consultar el historial inmutable de auditoría de una incidencia",
+)
+def obtener_historial_auditoria(
+    identificador: str,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+
+    consulta = db.query(models.RegistroAuditoria).filter(
+        models.RegistroAuditoria.incidencia_id == incidencia.id
+    )
+    # Regla RBAC: El solicitante jamás ve eventos de auditoría internos
+    if _es_solicitante(usuario):
+        consulta = consulta.filter(models.RegistroAuditoria.es_interno.is_(False))
+
+    return consulta.order_by(models.RegistroAuditoria.creado_en.asc()).all()
+
+
+
+@app.get(
+    "/incidencias/{identificador}/historial",
+    response_model=list[schemas.RegistroAuditoriaRespuesta],
+    summary="Consultar el historial inmutable de auditoría de una incidencia",
+)
+def obtener_historial_auditoria(
+    identificador: str,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+
+    consulta = db.query(models.RegistroAuditoria).filter(
+        models.RegistroAuditoria.incidencia_id == incidencia.id
+    )
+    # Regla RBAC: El solicitante jamás ve eventos de auditoría internos
+    if _es_solicitante(usuario):
+        consulta = consulta.filter(models.RegistroAuditoria.es_interno.is_(False))
+
+    return consulta.order_by(models.RegistroAuditoria.creado_en.asc()).all()

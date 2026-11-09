@@ -26,6 +26,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Búsqueda flexible:** consulta por ID numérico (`/incidencias/1`) o por código legible (`/incidencias/INC-2026-000001`).
 - **Comunicación dual en hilo cronológico:** respuestas públicas para interactuar con el solicitante y notas internas privadas confidenciales exclusivas para el equipo técnico.
 - **Reactivación automática (ITIL):** cuando un solicitante responde a una incidencia en estado `Pendiente de usuario`, esta pasa automáticamente a `En progreso`.
+- **Historial de auditoría inmutable:** línea de tiempo inalterable que registra automáticamente quién hizo qué y cuándo (creación, transiciones de estado, cambios de prioridad, asignación de técnicos, resolución y comentarios).
 
 ### Usuarios y control de acceso (RBAC)
 - **4 roles:** `solicitante` (usuario final), `agente`, `supervisor` y `administrador`.
@@ -50,7 +51,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 79 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas y seguridad)
+- **pytest**: 91 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad y auditoría inmutable)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -81,6 +82,7 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Resolver (con nota obligatoria) | `POST /incidencias/{id_o_codigo}/resolver` | `agente`, `supervisor`, `administrador` |
 | Añadir comentario (público o nota interna) | `POST /incidencias/{id_o_codigo}/comentarios` | Autenticado (nota interna solo técnicos) |
 | Listar hilo de comentarios | `GET /incidencias/{id_o_codigo}/comentarios` | Autenticado (solicitante no ve notas internas) |
+| Consultar historial de auditoría | `GET /incidencias/{id_o_codigo}/historial` | Autenticado (solicitante no ve eventos internos) |
 
 Documentación interactiva en `/docs`:
 
@@ -133,15 +135,17 @@ helpdesk-lite/
 |-- app/
 |   |-- routers/
 |   |   `-- auth.py      # Endpoints de autenticación y usuarios
+|   |-- auditoria.py     # Helper de registro inmutable de auditoría
 |   |-- auth.py          # bcrypt, JWT y dependencias de permisos
 |   |-- database.py      # Conexión a la base de datos
 |   |-- main.py          # Aplicación FastAPI y endpoints de incidencias
-|   |-- models.py        # Modelos (Usuario, Incidencia, Comentario)
+|   |-- models.py        # Modelos (Usuario, Incidencia, Comentario, RegistroAuditoria)
 |   |-- reglas.py        # Matriz ITIL y máquina de estados
 |   |-- schemas.py       # Validación de datos (Pydantic)
 |   `-- static/
 |       `-- index.html   # Interfaz web
 |-- tests/
+|   |-- test_auditoria.py          # Tests de historial y trazabilidad inmutable
 |   |-- test_auth.py               # Tests de autenticación y RBAC
 |   |-- test_comentarios.py        # Tests de respuestas públicas y notas internas
 |   |-- test_incidencias.py        # Tests de tickets, estados y asignación
@@ -166,7 +170,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Identificador legible (`INC-2026-000142`, `REQ-2026-000001`), tipología de tickets y canales de origen
 - [x] Asignación de incidencias a agentes (con validación de rol, auto-transición y filtros)
 - [x] Comentarios públicos y notas internas (comunicación dual)
-- [ ] Historial de auditoría inmutable
+- [x] Historial de auditoría inmutable
 - [ ] SLA con calendario laboral y pausas
 - [ ] Base de Conocimiento (Knowledge Base)
 - [ ] Dashboard con KPIs y exportación a CSV
