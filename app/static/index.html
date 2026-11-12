@@ -187,6 +187,27 @@
       color: #3e4c59;
     }
 
+    .sla-en_tiempo,
+    .sla-cumplido {
+      background: #c6f6d5;
+      color: #276749;
+    }
+
+    .sla-en_riesgo {
+      background: #feebc8;
+      color: #975a16;
+    }
+
+    .sla-vencido {
+      background: #fed7d7;
+      color: #9b2c2c;
+    }
+
+    .sla-pausado {
+      background: #e4e7eb;
+      color: #3e4c59;
+    }
+
     .mensaje {
       padding: 10px 14px;
       border-radius: 6px;
@@ -316,6 +337,11 @@
             <option>P3 - Media</option>
             <option>P4 - Baja</option>
           </select>
+          <select id="filtroSla">
+            <option value="">SLA: todos</option>
+            <option value="en_riesgo">SLA en riesgo</option>
+            <option value="vencido">SLA vencido</option>
+          </select>
         </div>
         <div class="tabla-scroll">
           <table>
@@ -326,6 +352,7 @@
                 <th>Prioridad</th>
                 <th>Impacto / Urgencia</th>
                 <th>Estado</th>
+                <th>SLA</th>
                 <th>Creada</th>
                 <th>Acciones</th>
               </tr>
@@ -490,6 +517,8 @@
       const params = new URLSearchParams();
       if ($("filtroEstado").value) params.set("estado", $("filtroEstado").value);
       if ($("filtroPrioridad").value) params.set("prioridad", $("filtroPrioridad").value);
+      if ($("filtroSla").value === "vencido") params.set("sla_vencido", "true");
+      if ($("filtroSla").value === "en_riesgo") params.set("sla_en_riesgo", "true");
       try {
         const lista = await api(`${API}?${params}`);
         pintar(lista);
@@ -503,7 +532,7 @@
       const gestor = esGestor();
 
       if (lista.length === 0) {
-        tabla.innerHTML = '<tr><td colspan="7" class="vacio">No hay incidencias</td></tr>';
+        tabla.innerHTML = '<tr><td colspan="8" class="vacio">No hay incidencias</td></tr>';
         return;
       }
 
@@ -534,6 +563,18 @@
           ? `<div class="nota">Resolución: ${esc(i.nota_resolucion)}</div>`
           : "";
 
+        const estadoSla = i.estado_sla || "en_tiempo";
+        const textoSla = {
+          en_tiempo: "En tiempo",
+          en_riesgo: "En riesgo",
+          vencido: "Vencido",
+          pausado: "Pausado",
+          cumplido: "Cumplido"
+        }[estadoSla] || estadoSla;
+        const vence = i.sla_limite_resolucion
+          ? `<div class="desc">${formatearFecha(i.sla_limite_resolucion)}</div>`
+          : "";
+
         return `
           <tr>
             <td>${i.id}</td>
@@ -541,6 +582,7 @@
             <td><span class="etiqueta p${esc(i.prioridad.charAt(1))}">${esc(i.prioridad)}</span></td>
             <td class="pequeno">${esc(i.impacto)} / ${esc(i.urgencia)}</td>
             <td>${estadoHtml}</td>
+            <td><span class="etiqueta sla-${esc(estadoSla)}">${esc(textoSla)}</span>${vence}</td>
             <td>${formatearFecha(i.creada_en)}</td>
             <td>${acciones}</td>
           </tr>`;
@@ -594,6 +636,7 @@
 
     $("filtroEstado").addEventListener("change", cargar);
     $("filtroPrioridad").addEventListener("change", cargar);
+    $("filtroSla").addEventListener("change", cargar);
 
     // ---------- Arranque ----------
     if (token && usuario) {

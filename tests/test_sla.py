@@ -91,13 +91,40 @@ def test_inicializar_sla_desconocida_usa_p4():
     assert rt == datetime(2026, 1, 13, 10, 0, 0)  # Mismo que P4
 
 
+def test_frt_p3_respeta_calendario_laboral():
+    # Ejemplo de la especificación (RF-4.2): P3 entra el viernes a las 17:00
+    viernes = datetime(2026, 1, 2, 17, 0, 0)
+    frt, _ = sla.inicializar_sla("P3 - Media", viernes)
+    # 1 hora el viernes (hasta las 18:00) + 3 horas el lunes = lunes 12:00
+    assert frt == datetime(2026, 1, 5, 12, 0, 0)
+
+
+def test_frt_p1_usa_calendario_continuo():
+    viernes = datetime(2026, 1, 2, 17, 0, 0)
+    frt, _ = sla.inicializar_sla("P1 - Crítica", viernes)
+    assert frt == viernes + timedelta(minutes=15)
+
+
+def test_recalcular_prioridad_ajusta_frt_sin_primera_respuesta():
+    class FakeInc:
+        estado = "En progreso"
+        creada_en = datetime(2026, 1, 1, 10, 0, 0)
+        primera_respuesta_en = None
+        sla_limite_primera_respuesta = None
+        sla_limite_resolucion = None
+        sla_tiempo_pausado_segundos = 0
+
+    inc = FakeInc()
+    sla.recalcular_sla_por_cambio_prioridad(inc, "P1 - Crítica")
+    assert inc.sla_limite_primera_respuesta == inc.creada_en + timedelta(minutes=15)
+
+
 # ----------------------------------------------------------------
 # 2. Sellado de primera respuesta (FRT)
 # ----------------------------------------------------------------
 
 def test_registrar_primera_respuesta_dentro_de_plazo():
     ahora = datetime(2026, 1, 1, 10, 0, 0)
-    incidencia = _crear_incidencia_en_db.__wrapped__ if False else None
     # Creamos una incidencia ligera sin DB para probar la función pura
     class FakeInc:
         primera_respuesta_en = None
@@ -436,3 +463,63 @@ def test_filtro_sla_en_riesgo_api(client, cuentas, db_session):
     assert respuesta.status_code == 200
     ids = [t["id"] for t in respuesta.json()]
     assert incidencia.id in ids
+
+
+def test_filtro_sla_vencido_incluye_tickets_abiertos(client, cuentas, db_session):
+    ahora = datetime.now()
+    incidencia = _crear_incidencia_en_db(
+        db_session,
+        prioridad="P1 - Crítica",
+        estado="En progreso",
+        sla_limite_resolucion=ahora - timedelta(hours=1),
+        creada_en=ahora - timedelta(hours=5),
+    )
+    db_session.commit()
+
+    respuesta = client.get(
+        "/incidencias", params={"sla_vencido": True}, headers=cuentas.agente.h
+    )
+    assert respuesta.status_code == 200
+    ids = [t["id"] for t in respuesta.json()]
+    assert incidencia.id in ids
+
+
+def test_filtro_sla_vencido_excluye_tickets_pausados(client, cuentas, db_session):
+    ahora = datetime.now()
+    incidencia = _crear_incidencia_en_db(
+        db_session,
+        prioridad="P1 - Crítica",
+        estado="Pendiente de usuario",
+        sla_limite_resolucion=ahora - timedelta(hours=1),
+        sla_pausado_en=ahora - timedelta(hours=2),
+        creada_en=ahora - timedelta(hours=5),
+    )
+    db_session.commit()
+
+    respuesta = client.get(
+        "/incidencias", params={"sla_vencido": True}, headers=cuentas.agente.h
+    )
+    assert respuesta.status_code == 200
+    ids = [t["id"] for t in respuesta.json()]
+    assert incidencia.id not in ids
+
+
+def test_sla_vencido_no_incluye_resueltos_a_tiempo(client, cuentas, db_session):
+    ahora = datetime.now()
+    incidencia = _crear_incidencia_en_db(
+        db_session,
+        prioridad="P1 - Crítica",
+        estado="Resuelto",
+        sla_limite_resolucion=ahora - timedelta(hours=1),
+        sla_resolucion_vencido=False,
+        sla_resolucion_cumplido=True,
+        creada_en=ahora - timedelta(hours=5),
+    )
+    db_session.commit()
+
+    respuesta = client.get(
+        "/incidencias", params={"sla_vencido": True}, headers=cuentas.agente.h
+    )
+    assert respuesta.status_code == 200
+    ids = [t["id"] for t in respuesta.json()]
+    assert incidencia.id not in ids

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import FileResponse
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from . import auditoria, auth, models, reglas, schemas, sla
@@ -15,7 +16,7 @@ models.Base.metadata.create_all(bind=engine)
 app = FastAPI(
     title="HelpDesk Lite - ITSM",
     description="Sistema de Gestión de Helpdesk y Soporte Técnico (ITSM)",
-    version="1.4.0",
+    version="1.5.0",
 )
 
 app.include_router(auth_router.router)
@@ -199,7 +200,26 @@ def listar_incidencias(
     if sin_asignar is True:
         consulta = consulta.filter(models.Incidencia.agente_asignado_id.is_(None))
     if sla_vencido is True:
-        consulta = consulta.filter(models.Incidencia.sla_resolucion_vencido.is_(True))
+        # Incluye tanto los vencimientos ya sellados (tickets resueltos tarde)
+        # como los tickets abiertos cuyo límite de resolución ya pasó.
+        consulta = consulta.filter(
+            or_(
+                models.Incidencia.sla_resolucion_vencido.is_(True),
+                and_(
+                    models.Incidencia.sla_limite_resolucion.isnot(None),
+                    models.Incidencia.sla_limite_resolucion < datetime.now(),
+                    models.Incidencia.estado.notin_(
+                        (
+                            "Resuelto",
+                            "Cerrado",
+                            "Cancelado",
+                            "Pendiente de usuario",
+                            "Pendiente de tercero",
+                        )
+                    ),
+                ),
+            )
+        )
 
     resultados = consulta.order_by(models.Incidencia.id.desc()).all()
 
@@ -455,29 +475,6 @@ def listar_comentarios(
         consulta = consulta.filter(models.Comentario.es_interno.is_(False))
 
     return consulta.order_by(models.Comentario.creado_en.asc()).all()
-
-
-@app.get(
-    "/incidencias/{identificador}/historial",
-    response_model=list[schemas.RegistroAuditoriaRespuesta],
-    summary="Consultar el historial inmutable de auditoría de una incidencia",
-)
-def obtener_historial_auditoria(
-    identificador: str,
-    db: Session = Depends(get_db),
-    usuario: models.Usuario = Depends(auth.get_current_user),
-):
-    incidencia = _buscar_visible(db, identificador, usuario)
-
-    consulta = db.query(models.RegistroAuditoria).filter(
-        models.RegistroAuditoria.incidencia_id == incidencia.id
-    )
-    # Regla RBAC: El solicitante jamás ve eventos de auditoría internos
-    if _es_solicitante(usuario):
-        consulta = consulta.filter(models.RegistroAuditoria.es_interno.is_(False))
-
-    return consulta.order_by(models.RegistroAuditoria.creado_en.asc()).all()
-
 
 
 @app.get(

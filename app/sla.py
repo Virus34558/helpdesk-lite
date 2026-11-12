@@ -111,6 +111,15 @@ def _es_calendario_continuo(prioridad: str) -> bool:
     return objetivo.get("calendario") == "continuo"
 
 
+def _limite_primera_respuesta(
+    prioridad: str, fecha_base: datetime, objetivo: dict
+) -> datetime:
+    """Calcula el límite de FRT respetando el calendario de la póliza."""
+    if _es_calendario_continuo(prioridad):
+        return fecha_base + timedelta(minutes=objetivo["frt_minutos"])
+    return sumar_horas_habiles(fecha_base, objetivo["frt_minutos"] / 60)
+
+
 def inicializar_sla(
     prioridad: str, fecha_base: datetime | None = None
 ) -> tuple[datetime, datetime]:
@@ -121,7 +130,7 @@ def inicializar_sla(
     ahora = fecha_base or datetime.now()
     objetivo = OBJETIVOS_SLA.get(prioridad, OBJETIVOS_SLA["P4 - Baja"])
 
-    limite_frt = ahora + timedelta(minutes=objetivo["frt_minutos"])
+    limite_frt = _limite_primera_respuesta(prioridad, ahora, objetivo)
 
     if _es_calendario_continuo(prioridad):
         limite_rt = ahora + timedelta(hours=objetivo["rt_horas"])
@@ -208,6 +217,12 @@ def recalcular_sla_por_cambio_prioridad(incidencia, nueva_prioridad: str):
         return
 
     objetivo = OBJETIVOS_SLA.get(nueva_prioridad, OBJETIVOS_SLA["P4 - Baja"])
+
+    # Si aún no hubo primera respuesta, el límite de FRT también se ajusta
+    if incidencia.primera_respuesta_en is None:
+        incidencia.sla_limite_primera_respuesta = _limite_primera_respuesta(
+            nueva_prioridad, incidencia.creada_en, objetivo
+        )
 
     if _es_calendario_continuo(nueva_prioridad):
         nuevo_limite_rt = incidencia.creada_en + timedelta(

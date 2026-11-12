@@ -2,7 +2,7 @@
 
 [![Tests](https://github.com/Virus34558/helpdesk-lite/actions/workflows/tests.yml/badge.svg)](https://github.com/Virus34558/helpdesk-lite/actions/workflows/tests.yml)
 
-Sistema de gestión de incidencias IT inspirado en la herramienta interna de un departamento de soporte. Desarrollado con **FastAPI** y **SQLAlchemy**: roles de usuario, autenticación **JWT**, prioridad calculada con la matriz **ITIL** y un flujo de estados con reglas.
+Sistema de gestión de incidencias IT inspirado en la herramienta interna de un departamento de soporte. Desarrollado con **FastAPI** y **SQLAlchemy**: roles de usuario, autenticación **JWT**, prioridad calculada con la matriz **ITIL**, un flujo de estados con reglas y **SLAs con calendario laboral y pausas**.
 
 **Demo en vivo:** https://helpdesk-lite-6x8a.onrender.com
 
@@ -22,11 +22,18 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Flujo de estados con reglas:** Nuevo, En progreso, Pendiente de usuario, Pendiente de tercero, Resuelto, Cerrado y Cancelado. Las transiciones no permitidas se rechazan con `409 Conflict`.
 - Para resolver una incidencia es **obligatorio** escribir una nota de resolución (causa raíz y solución).
 - **Inmutabilidad total:** Cerrado y Cancelado son estados finales e inmutables (se bloquea cualquier modificación o asignación).
-- **Filtros completos:** por estado, prioridad, tipo de ticket, técnico asignado (`?agente_asignado_id=`) o tickets sin asignar (`?sin_asignar=true`).
+- **Filtros completos:** por estado, prioridad, tipo de ticket, técnico asignado (`?agente_asignado_id=`), tickets sin asignar (`?sin_asignar=true`), SLA vencido (`?sla_vencido=true`) y SLA en riesgo (`?sla_en_riesgo=true`).
 - **Búsqueda flexible:** consulta por ID numérico (`/incidencias/1`) o por código legible (`/incidencias/INC-2026-000001`).
 - **Comunicación dual en hilo cronológico:** respuestas públicas para interactuar con el solicitante y notas internas privadas confidenciales exclusivas para el equipo técnico.
 - **Reactivación automática (ITIL):** cuando un solicitante responde a una incidencia en estado `Pendiente de usuario`, esta pasa automáticamente a `En progreso`.
 - **Historial de auditoría inmutable:** línea de tiempo inalterable que registra automáticamente quién hizo qué y cuándo (creación, transiciones de estado, cambios de prioridad, asignación de técnicos, resolución y comentarios).
+
+### Acuerdos de Nivel de Servicio (SLA)
+- **Dos métricas por ticket:** tiempo de primera respuesta (FRT) y tiempo de resolución (RT), con objetivos por prioridad (P1 15 min / 4 h, P2 1 h / 8 h, P3 4 h / 24 h, P4 8 h / 72 h).
+- **Calendario laboral (L-V 09:00-18:00):** los tickets P2-P4 solo consumen tiempo dentro del horario laboral; P1 usa calendario continuo 24×7.
+- **Stop the Clock:** al pasar a `Pendiente de usuario` o `Pendiente de tercero` el reloj se pausa y, al reanudarse, el límite de resolución se amplía por el tiempo pausado.
+- **Estado SLA en tiempo real:** `en tiempo`, `en riesgo` (≥75 % del tiempo consumido), `vencido`, `pausado` o `cumplido`, visible en la interfaz web.
+- **Filtros SLA:** `?sla_vencido=true` incluye tickets abiertos fuera de plazo y resoluciones tardías; `?sla_en_riesgo=true` muestra los que están cerca de vencer.
 
 ### Usuarios y control de acceso (RBAC)
 - **4 roles:** `solicitante` (usuario final), `agente`, `supervisor` y `administrador`.
@@ -51,7 +58,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 91 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad y auditoría inmutable)
+- **pytest**: 122 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable y SLA)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -75,7 +82,7 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Acción | Método y ruta | Acceso |
 |---|---|---|
 | Crear incidencia / ticket | `POST /incidencias` | Autenticado |
-| Listar (con filtros: estado, prioridad, tipo, agente, sin asignar) | `GET /incidencias?estado=Nuevo&prioridad=P1 - Crítica&tipo=Incidencia&sin_asignar=true` | Autenticado (el solicitante solo ve las suyas) |
+| Listar (con filtros: estado, prioridad, tipo, agente, sin asignar, SLA) | `GET /incidencias?estado=Nuevo&prioridad=P1 - Crítica&tipo=Incidencia&sin_asignar=true&sla_vencido=true` | Autenticado (el solicitante solo ve las suyas) |
 | Consultar una (por ID numérico o código legible) | `GET /incidencias/{id_o_codigo}` | Autenticado (idem) |
 | Asignar o desasignar técnico | `POST /incidencias/{id_o_codigo}/asignar` | `agente`, `supervisor`, `administrador` |
 | Actualizar estado, impacto o urgencia | `PATCH /incidencias/{id_o_codigo}` | `agente`, `supervisor`, `administrador` |
@@ -142,15 +149,19 @@ helpdesk-lite/
 |   |-- models.py        # Modelos (Usuario, Incidencia, Comentario, RegistroAuditoria)
 |   |-- reglas.py        # Matriz ITIL y máquina de estados
 |   |-- schemas.py       # Validación de datos (Pydantic)
+|   |-- sla.py           # Cálculo de SLA, calendario laboral y pausas
 |   `-- static/
 |       `-- index.html   # Interfaz web
 |-- tests/
 |   |-- test_auditoria.py          # Tests de historial y trazabilidad inmutable
 |   |-- test_auth.py               # Tests de autenticación y RBAC
 |   |-- test_comentarios.py        # Tests de respuestas públicas y notas internas
+|   |-- test_comentarios_extra.py  # Tests adicionales del hilo de comentarios
 |   |-- test_incidencias.py        # Tests de tickets, estados y asignación
+|   |-- test_privacidad.py         # Tests de privacidad de datos y autoría
 |   |-- test_reglas.py             # Tests de matriz ITIL y máquina de estados
-|   `-- test_seguridad_tickets.py  # Tests de permisos y restricciones de seguridad
+|   |-- test_seguridad_tickets.py  # Tests de permisos y restricciones de seguridad
+|   `-- test_sla.py                # Tests de SLA, calendario laboral y pausas
 |-- docs/                # Capturas del README
 |-- .github/workflows/   # GitHub Actions
 |-- Dockerfile
@@ -171,11 +182,11 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Asignación de incidencias a agentes (con validación de rol, auto-transición y filtros)
 - [x] Comentarios públicos y notas internas (comunicación dual)
 - [x] Historial de auditoría inmutable
-- [ ] SLA con calendario laboral y pausas
+- [x] SLA con calendario laboral y pausas (FRT/RT, Stop the Clock, alertas y filtros)
 - [ ] Base de Conocimiento (Knowledge Base)
 - [ ] Dashboard con KPIs y exportación a CSV
 - [ ] Migraciones con Alembic
-- [ ] Paginación y búsqueda全文
+- [ ] Paginación y búsqueda de texto completo
 
 ## Autor
 
