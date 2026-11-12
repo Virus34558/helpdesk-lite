@@ -85,6 +85,12 @@ class Incidencia(Base):
     sla_resolucion_vencido: Mapped[bool] = mapped_column(
         Boolean, default=False, index=True
     )
+    sla_en_riesgo_80: Mapped[bool] = mapped_column(
+        Boolean, default=False, index=True
+    )
+    sla_breach_100: Mapped[bool] = mapped_column(
+        Boolean, default=False, index=True
+    )
 
     comentarios: Mapped[list["Comentario"]] = relationship(
         back_populates="incidencia",

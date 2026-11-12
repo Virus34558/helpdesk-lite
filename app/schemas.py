@@ -149,6 +149,8 @@ class IncidenciaRespuesta(BaseModel):
     sla_tiempo_pausado_segundos: int = 0
     sla_resolucion_cumplido: bool | None = None
     sla_resolucion_vencido: bool = False
+    sla_en_riesgo_80: bool = False
+    sla_breach_100: bool = False
     estado_sla: str | None = None
 
 
