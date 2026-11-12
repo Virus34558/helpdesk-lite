@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from app import sla, models, auth, reglas
+from app import sla, models, auth, reglas, sla_vigilancia
 from app.database import Base
 
 
@@ -523,3 +523,161 @@ def test_sla_vencido_no_incluye_resueltos_a_tiempo(client, cuentas, db_session):
     assert respuesta.status_code == 200
     ids = [t["id"] for t in respuesta.json()]
     assert incidencia.id not in ids
+
+
+# ----------------------------------------------------------------
+# 6. Vigilancia de SLA: alertas, breach y notificaciones (RF-4.3)
+# ----------------------------------------------------------------
+
+def _incidencia_al_87_por_ciento(db_session, cuentas, ahora):
+    incidencia = _crear_incidencia_en_db(
+        db_session,
+        prioridad="P1 - Crítica",
+        estado="En progreso",
+        creada_en=ahora - timedelta(hours=3, minutes=30),
+        sla_limite_resolucion=ahora + timedelta(minutes=30),
+        agente_asignado_id=cuentas.agente.id,
+    )
+    db_session.commit()
+    return incidencia
+
+
+def test_revisar_sla_alerta_80_notifica_al_agente(client, cuentas, db_session):
+    ahora = datetime.now()
+    incidencia = _incidencia_al_87_por_ciento(db_session, cuentas, ahora)
+
+    resultado = sla_vigilancia.revisar_slas(db_session, ahora=ahora)
+
+    assert resultado["alertas_80"] == 1
+    assert resultado["breaches"] == 0
+    db_session.refresh(incidencia)
+    assert incidencia.sla_en_riesgo_80 is True
+    assert incidencia.sla_breach_100 is False
+
+    notificaciones = (
+        db_session.query(models.Notificacion)
+        .filter_by(usuario_id=cuentas.agente.id)
+        .all()
+    )
+    assert len(notificaciones) == 1
+    assert notificaciones[0].tipo == "sla_en_riesgo"
+    assert "SLA en riesgo" in notificaciones[0].mensaje
+
+    alertas = (
+        db_session.query(models.RegistroAuditoria)
+        .filter_by(incidencia_id=incidencia.id, accion="alerta_sla_80")
+        .all()
+    )
+    assert len(alertas) == 1
+
+
+def test_revisar_sla_breach_marca_y_notifica_supervision(client, cuentas, db_session):
+    ahora = datetime.now()
+    incidencia = _crear_incidencia_en_db(
+        db_session,
+        prioridad="P1 - Crítica",
+        estado="En progreso",
+        creada_en=ahora - timedelta(hours=5),
+        sla_limite_resolucion=ahora - timedelta(minutes=10),
+        agente_asignado_id=cuentas.agente.id,
+    )
+    db_session.commit()
+
+    resultado = sla_vigilancia.revisar_slas(db_session, ahora=ahora)
+
+    assert resultado["breaches"] == 1
+    db_session.refresh(incidencia)
+    assert incidencia.sla_breach_100 is True
+    assert incidencia.sla_resolucion_vencido is True
+
+    notificaciones = (
+        db_session.query(models.Notificacion)
+        .filter_by(usuario_id=cuentas.admin.id, tipo="sla_vencido")
+        .all()
+    )
+    assert len(notificaciones) == 1
+    assert "SLA vencido" in notificaciones[0].mensaje
+
+    breach = (
+        db_session.query(models.RegistroAuditoria)
+        .filter_by(incidencia_id=incidencia.id, accion="breach_sla")
+        .all()
+    )
+    assert len(breach) == 1
+
+
+def test_revisar_sla_es_idempotente(client, cuentas, db_session):
+    ahora = datetime.now()
+    _incidencia_al_87_por_ciento(db_session, cuentas, ahora)
+
+    primero = sla_vigilancia.revisar_slas(db_session, ahora=ahora)
+    segundo = sla_vigilancia.revisar_slas(db_session, ahora=ahora)
+
+    assert primero["alertas_80"] == 1
+    assert segundo["alertas_80"] == 0
+    assert db_session.query(models.Notificacion).count() == 1
+    assert (
+        db_session.query(models.RegistroAuditoria)
+        .filter_by(accion="alerta_sla_80")
+        .count()
+        == 1
+    )
+
+
+def test_revisar_sla_ignora_tickets_pausados(client, cuentas, db_session):
+    ahora = datetime.now()
+    _crear_incidencia_en_db(
+        db_session,
+        prioridad="P1 - Crítica",
+        estado="Pendiente de usuario",
+        creada_en=ahora - timedelta(hours=5),
+        sla_limite_resolucion=ahora - timedelta(hours=1),
+        sla_pausado_en=ahora - timedelta(hours=2),
+        agente_asignado_id=cuentas.agente.id,
+    )
+    db_session.commit()
+
+    resultado = sla_vigilancia.revisar_slas(db_session, ahora=ahora)
+
+    assert resultado["alertas_80"] == 0
+    assert resultado["breaches"] == 0
+    assert db_session.query(models.Notificacion).count() == 0
+
+
+def test_endpoint_revisar_sla_solo_supervision(client, cuentas):
+    assert client.post("/sla/revisar", headers=cuentas.agente.h).status_code == 403
+    respuesta = client.post("/sla/revisar", headers=cuentas.admin.h)
+    assert respuesta.status_code == 200
+    assert "alertas_80" in respuesta.json()
+
+
+def test_notificaciones_listar_y_marcar_leida(client, cuentas, db_session):
+    ahora = datetime.now()
+    _incidencia_al_87_por_ciento(db_session, cuentas, ahora)
+    sla_vigilancia.revisar_slas(db_session, ahora=ahora)
+
+    listado = client.get("/notificaciones", headers=cuentas.agente.h)
+    assert listado.status_code == 200
+    notificaciones = listado.json()
+    assert len(notificaciones) == 1
+    notificacion_id = notificaciones[0]["id"]
+    assert notificaciones[0]["leida"] is False
+
+    # Otro usuario no puede marcar una notificación ajena
+    ajeno = client.post(
+        f"/notificaciones/{notificacion_id}/leer", headers=cuentas.otro.h
+    )
+    assert ajeno.status_code == 404
+
+    marcada = client.post(
+        f"/notificaciones/{notificacion_id}/leer", headers=cuentas.agente.h
+    )
+    assert marcada.status_code == 200
+    assert marcada.json()["leida"] is True
+
+    pendientes = client.get(
+        "/notificaciones",
+        params={"solo_no_leidas": True},
+        headers=cuentas.agente.h,
+    )
+    assert pendientes.json() == []

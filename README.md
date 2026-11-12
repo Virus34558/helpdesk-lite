@@ -27,6 +27,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Comunicación dual en hilo cronológico:** respuestas públicas para interactuar con el solicitante y notas internas privadas confidenciales exclusivas para el equipo técnico.
 - **Reactivación automática (ITIL):** cuando un solicitante responde a una incidencia en estado `Pendiente de usuario`, esta pasa automáticamente a `En progreso`.
 - **Historial de auditoría inmutable:** línea de tiempo inalterable que registra automáticamente quién hizo qué y cuándo (creación, transiciones de estado, cambios de prioridad, asignación de técnicos, resolución y comentarios).
+- **Vista de detalle en la web:** al pulsar `Ver` se abre el ticket completo con sus datos, SLA, conversación (respuestas públicas y notas internas), asignación de técnico e historial de auditoría.
 
 ### Acuerdos de Nivel de Servicio (SLA)
 - **Dos métricas por ticket:** tiempo de primera respuesta (FRT) y tiempo de resolución (RT), con objetivos por prioridad (P1 15 min / 4 h, P2 1 h / 8 h, P3 4 h / 24 h, P4 8 h / 72 h).
@@ -34,6 +35,8 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Stop the Clock:** al pasar a `Pendiente de usuario` o `Pendiente de tercero` el reloj se pausa y, al reanudarse, el límite de resolución se amplía por el tiempo pausado.
 - **Estado SLA en tiempo real:** `en tiempo`, `en riesgo` (≥75 % del tiempo consumido), `vencido`, `pausado` o `cumplido`, visible en la interfaz web.
 - **Filtros SLA:** `?sla_vencido=true` incluye tickets abiertos fuera de plazo y resoluciones tardías; `?sla_en_riesgo=true` muestra los que están cerca de vencer.
+- **Alertas y escalado:** al 80 % se notifica al agente asignado y al 100 % se marca el breach y se avisa a supervisores y administradores. Las alertas son idempotentes y quedan registradas en la auditoría interna.
+- **Vigilancia programada:** un job opcional revisa los SLA cada 5 minutos (configurable) y una revisión manual está disponible para supervisores/administradores.
 
 ### Usuarios y control de acceso (RBAC)
 - **4 roles:** `solicitante` (usuario final), `agente`, `supervisor` y `administrador`.
@@ -58,7 +61,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 122 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable y SLA)
+- **pytest**: 130 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA y notificaciones)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -74,6 +77,7 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Registrar usuario | `POST /auth/registro` | Público |
 | Iniciar sesión (obtener JWT) | `POST /auth/login` | Público |
 | Ver mi perfil | `GET /auth/me` | Autenticado |
+| Listar técnicos asignables | `GET /auth/tecnicos` | `agente`, `supervisor`, `administrador` |
 | Listar usuarios | `GET /auth/usuarios` | `supervisor`, `administrador` |
 | Cambiar rol de un usuario | `PATCH /auth/usuarios/{id}/rol` | `administrador` |
 
@@ -90,6 +94,14 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Añadir comentario (público o nota interna) | `POST /incidencias/{id_o_codigo}/comentarios` | Autenticado (nota interna solo técnicos) |
 | Listar hilo de comentarios | `GET /incidencias/{id_o_codigo}/comentarios` | Autenticado (solicitante no ve notas internas) |
 | Consultar historial de auditoría | `GET /incidencias/{id_o_codigo}/historial` | Autenticado (solicitante no ve eventos internos) |
+| Revisar SLA y generar alertas | `POST /sla/revisar` | `supervisor`, `administrador` |
+
+### Notificaciones (`/notificaciones`)
+
+| Acción | Método y ruta | Acceso |
+|---|---|---|
+| Listar mis notificaciones (opcional `?solo_no_leidas=true`) | `GET /notificaciones` | Autenticado |
+| Marcar una notificación como leída | `POST /notificaciones/{id}/leer` | Autenticado (solo las propias) |
 
 Documentación interactiva en `/docs`:
 
@@ -116,6 +128,8 @@ Abre http://127.0.0.1:8000. El primer usuario que registres será administrador.
 | `SECRET_KEY` | Clave con la que se firman los tokens JWT | Se genera una aleatoria en cada arranque (las sesiones se pierden al reiniciar) |
 | `ADMIN_EMAIL` | Único correo que puede convertirse en el primer administrador | El primer usuario registrado es administrador |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Duración de la sesión | 1440 (24 horas) |
+| `SLA_SCHEDULER_ENABLED` | Activa la revisión automática de SLA en segundo plano | Desactivada |
+| `SLA_CHECK_INTERVAL_SECONDS` | Intervalo entre revisiones de SLA (mínimo 30 s) | 300 (5 minutos) |
 
 En producción, `SECRET_KEY` debe ser una cadena larga y aleatoria, y nunca debe subirse al repositorio.
 
@@ -141,17 +155,20 @@ Los tests usan una base de datos temporal en memoria, sin tocar los datos locale
 helpdesk-lite/
 |-- app/
 |   |-- routers/
-|   |   `-- auth.py      # Endpoints de autenticación y usuarios
+|   |   |-- auth.py          # Endpoints de autenticación y usuarios
+|   |   `-- notificaciones.py # Endpoints de notificaciones
 |   |-- auditoria.py     # Helper de registro inmutable de auditoría
 |   |-- auth.py          # bcrypt, JWT y dependencias de permisos
 |   |-- database.py      # Conexión a la base de datos
 |   |-- main.py          # Aplicación FastAPI y endpoints de incidencias
-|   |-- models.py        # Modelos (Usuario, Incidencia, Comentario, RegistroAuditoria)
+|   |-- models.py        # Modelos (Usuario, Incidencia, Comentario, RegistroAuditoria, Notificacion)
 |   |-- reglas.py        # Matriz ITIL y máquina de estados
+|   |-- scheduler.py     # Revisión periódica de SLA en segundo plano
 |   |-- schemas.py       # Validación de datos (Pydantic)
 |   |-- sla.py           # Cálculo de SLA, calendario laboral y pausas
+|   |-- sla_vigilancia.py # Alertas al 80 %/100 % y notificaciones de escalado
 |   `-- static/
-|       `-- index.html   # Interfaz web
+|       `-- index.html   # Interfaz web (listado, detalle, comentarios y avisos)
 |-- tests/
 |   |-- test_auditoria.py          # Tests de historial y trazabilidad inmutable
 |   |-- test_auth.py               # Tests de autenticación y RBAC
@@ -182,7 +199,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Asignación de incidencias a agentes (con validación de rol, auto-transición y filtros)
 - [x] Comentarios públicos y notas internas (comunicación dual)
 - [x] Historial de auditoría inmutable
-- [x] SLA con calendario laboral y pausas (FRT/RT, Stop the Clock, alertas y filtros)
+- [x] SLA con calendario laboral y pausas (FRT/RT, Stop the Clock, filtros, alertas al 80 %/100 %, breach persistido y escalado a supervisión)
 - [ ] Base de Conocimiento (Knowledge Base)
 - [ ] Dashboard con KPIs y exportación a CSV
 - [ ] Migraciones con Alembic

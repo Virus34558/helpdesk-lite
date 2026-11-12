@@ -201,3 +201,15 @@ class RegistroAuditoriaRespuesta(BaseModel):
     valor_nuevo: str | None
     es_interno: bool
     creado_en: datetime
+
+
+class NotificacionRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    usuario_id: int
+    incidencia_id: int
+    tipo: str
+    mensaje: str
+    leida: bool
+    creado_en: datetime

@@ -115,6 +115,21 @@ def test_control_acceso_rbac_usuarios_listado(client):
     assert len(res_admin.json()) == 2
 
 
+def test_tecnicos_asignables_para_agentes(client, cuentas):
+    respuesta = client.get("/auth/tecnicos", headers=cuentas.agente.h)
+    assert respuesta.status_code == 200
+    tecnicos = respuesta.json()
+    roles = {t["rol"] for t in tecnicos}
+    assert roles == {"administrador", "agente"}
+    assert all(t["activo"] for t in tecnicos)
+    assert all(t["rol"] != "solicitante" for t in tecnicos)
+
+
+def test_tecnicos_no_visibles_para_solicitante(client, cuentas):
+    respuesta = client.get("/auth/tecnicos", headers=cuentas.solicitante.h)
+    assert respuesta.status_code == 403
+
+
 def test_cambio_rol_solo_por_administrador(client):
     # Crear Admin y usuario Solicitante
     registrar(client, email="admin@corp.com", password="adminPass")

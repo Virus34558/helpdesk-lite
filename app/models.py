@@ -126,6 +126,23 @@ class Comentario(Base):
     incidencia: Mapped["Incidencia"] = relationship(back_populates="comentarios")
 
 
+class Notificacion(Base):
+    __tablename__ = "notificaciones"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    incidencia_id: Mapped[int] = mapped_column(
+        ForeignKey("incidencias.id"), index=True
+    )
+    tipo: Mapped[str] = mapped_column(String(30), index=True)
+    mensaje: Mapped[str] = mapped_column(Text)
+    leida: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    usuario: Mapped["Usuario"] = relationship()
+    incidencia: Mapped["Incidencia"] = relationship()
+
+
 class RegistroAuditoria(Base):
     __tablename__ = "registros_auditoria"
 

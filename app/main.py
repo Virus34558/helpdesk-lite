@@ -1,4 +1,6 @@
+import asyncio
 import secrets
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 
@@ -7,19 +9,44 @@ from fastapi.responses import FileResponse
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
-from . import auditoria, auth, models, reglas, schemas, sla
+from . import (
+    auditoria,
+    auth,
+    models,
+    reglas,
+    scheduler,
+    schemas,
+    sla,
+    sla_vigilancia,
+)
 from .database import engine, get_db
 from .routers import auth as auth_router
+from .routers import notificaciones as notificaciones_router
 
 models.Base.metadata.create_all(bind=engine)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    tarea = None
+    if scheduler.scheduler_habilitado():
+        tarea = asyncio.create_task(scheduler.bucle_revision_sla())
+    yield
+    if tarea:
+        tarea.cancel()
+        with suppress(asyncio.CancelledError):
+            await tarea
+
 
 app = FastAPI(
     title="HelpDesk Lite - ITSM",
     description="Sistema de Gestión de Helpdesk y Soporte Técnico (ITSM)",
-    version="1.5.0",
+    version="1.7.0",
+    lifespan=lifespan,
 )
 
 app.include_router(auth_router.router)
+app.include_router(notificaciones_router.router)
 
 # Quien puede gestionar incidencias (cambiar estado, impacto, asignar, resolver...)
 solo_gestores = auth.require_roles(
@@ -228,6 +255,21 @@ def listar_incidencias(
         resultados = [t for t in resultados if t.estado_sla == "en_riesgo"]
 
     return resultados
+
+
+@app.post(
+    "/sla/revisar",
+    summary="Revisar SLA y generar alertas/notificaciones (Supervisor o Administrador)",
+)
+def revisar_sla_manual(
+    db: Session = Depends(get_db),
+    _gestor: models.Usuario = Depends(
+        auth.require_roles(
+            models.RolUsuario.SUPERVISOR, models.RolUsuario.ADMINISTRADOR
+        )
+    ),
+):
+    return sla_vigilancia.revisar_slas(db)
 
 
 @app.get("/incidencias/{identificador}", response_model=schemas.IncidenciaRespuesta)

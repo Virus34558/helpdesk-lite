@@ -114,6 +114,32 @@ def perfil_usuario_actual(
 
 
 @router.get(
+    "/tecnicos",
+    response_model=list[schemas.UsuarioRespuesta],
+    summary="Listar técnicos asignables (Agente, Supervisor o Administrador)",
+)
+def listar_tecnicos(
+    db: Session = Depends(get_db),
+    _usuario_autorizado: models.Usuario = Depends(
+        auth.require_roles(
+            models.RolUsuario.AGENTE,
+            models.RolUsuario.SUPERVISOR,
+            models.RolUsuario.ADMINISTRADOR,
+        )
+    ),
+):
+    return (
+        db.query(models.Usuario)
+        .filter(
+            models.Usuario.activo.is_(True),
+            models.Usuario.rol != models.RolUsuario.SOLICITANTE.value,
+        )
+        .order_by(models.Usuario.nombre_completo.asc())
+        .all()
+    )
+
+
+@router.get(
     "/usuarios",
     response_model=list[schemas.UsuarioRespuesta],
     summary="Listar usuarios del sistema (Supervisor o Administrador)",

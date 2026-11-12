@@ -248,6 +248,156 @@
       text-align: center;
       font-size: .85rem;
     }
+
+    button.terciario {
+      background: #e4e7eb;
+      color: #1f2933;
+    }
+
+    button.terciario:hover {
+      background: #cbd2d9;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .55);
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 28px 16px;
+      overflow-y: auto;
+      z-index: 50;
+    }
+
+    .modal-caja {
+      background: white;
+      border-radius: 10px;
+      width: min(900px, 100%);
+      padding: 20px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, .3);
+    }
+
+    .modal-cabecera {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      border-bottom: 1px solid #e4e7eb;
+      padding-bottom: 12px;
+      margin-bottom: 16px;
+    }
+
+    .modal-cabecera h2 {
+      margin: 0 0 4px;
+    }
+
+    .detalle-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      background: #f7f9fb;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 16px;
+      font-size: .85rem;
+    }
+
+    .detalle-meta strong {
+      display: block;
+      color: #616e7c;
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+      margin-bottom: 4px;
+    }
+
+    .detalle-desc {
+      white-space: pre-wrap;
+      line-height: 1.5;
+      margin: 0 0 16px;
+    }
+
+    .detalle-bloque {
+      border-top: 1px solid #e4e7eb;
+      padding-top: 16px;
+      margin-top: 16px;
+    }
+
+    .detalle-bloque h3 {
+      font-size: .95rem;
+      margin: 0 0 12px;
+    }
+
+    .comentario {
+      border: 1px solid #e4e7eb;
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      background: #f9fbfc;
+    }
+
+    .comentario.interno {
+      background: #fffbea;
+      border-color: #ecc94b;
+    }
+
+    .comentario-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: baseline;
+      margin-bottom: 6px;
+      font-size: .8rem;
+      color: #616e7c;
+    }
+
+    .comentario-texto {
+      white-space: pre-wrap;
+      line-height: 1.45;
+      font-size: .9rem;
+    }
+
+    .historial {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      font-size: .82rem;
+    }
+
+    .historial li {
+      padding: 8px 0;
+      border-bottom: 1px dashed #e4e7eb;
+      line-height: 1.4;
+    }
+
+    .historial li:last-child {
+      border-bottom: none;
+    }
+
+    .historial .fecha {
+      color: #7b8794;
+      white-space: nowrap;
+    }
+
+    .asignacion {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .asignacion select {
+      min-width: 220px;
+    }
+
+    .inline {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+    }
   </style>
 </head>
 
@@ -287,6 +437,11 @@
 
     <!-- Aplicación -->
     <div id="vistaApp" hidden>
+      <section id="seccionNotificaciones" hidden>
+        <h2>Notificaciones <span id="contadorNotificaciones" class="etiqueta p1" hidden></span></h2>
+        <div id="listaNotificaciones"></div>
+      </section>
+
       <section>
         <h2>Nueva incidencia</h2>
         <form id="formIncidencia">
@@ -364,6 +519,21 @@
     </div>
   </main>
 
+  <!-- Detalle del ticket -->
+  <div id="modalDetalle" class="modal" hidden>
+    <div class="modal-caja">
+      <div class="modal-cabecera">
+        <div>
+          <h2 id="detalleTitulo">Detalle</h2>
+          <div id="detalleCodigo" class="desc"></div>
+        </div>
+        <button type="button" id="btnCerrarDetalle" class="terciario" onclick="cerrarDetalle()">Cerrar</button>
+      </div>
+      <div id="detalleMensaje" class="mensaje" hidden></div>
+      <div id="detalleContenido"></div>
+    </div>
+  </div>
+
   <script>
     const API = "/incidencias";
 
@@ -381,10 +551,20 @@
 
     const $ = (id) => document.getElementById(id);
 
+    const TEXTO_SLA = {
+      en_tiempo: "En tiempo",
+      en_riesgo: "En riesgo",
+      vencido: "Vencido",
+      pausado: "Pausado",
+      cumplido: "Cumplido"
+    };
+
     let token = sessionStorage.getItem("token");
     let usuario = null;
     try { usuario = JSON.parse(sessionStorage.getItem("usuario")); } catch (e) { }
     let modoRegistro = false;
+    let detalleId = null;
+    let tecnicos = null;
 
     // Evita que un texto malicioso se ejecute como HTML (XSS)
     function esc(texto) {
@@ -395,6 +575,14 @@
 
     function formatearFecha(iso) {
       return new Date(iso).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" });
+    }
+
+    function badgeSla(estadoSla, limite) {
+      const estado = estadoSla || "en_tiempo";
+      const vence = limite
+        ? `<div class="desc">${formatearFecha(limite)}</div>`
+        : "";
+      return `<span class="etiqueta sla-${esc(estado)}">${esc(TEXTO_SLA[estado] || estado)}</span>${vence}`;
     }
 
     function esGestor() {
@@ -444,8 +632,10 @@
     function cerrarSesion(aviso) {
       token = null;
       usuario = null;
+      tecnicos = null;
       sessionStorage.removeItem("token");
       sessionStorage.removeItem("usuario");
+      cerrarDetalle();
       mostrarAcceso();
       if (aviso) mostrarMensaje(aviso);
     }
@@ -466,6 +656,7 @@
       $("usuarioInfo").textContent = `${usuario.nombre_completo} (${usuario.rol})`;
       $("camposGestor").hidden = !esGestor();
       cargar();
+      cargarNotificaciones();
     }
 
     function actualizarModo() {
@@ -552,27 +743,15 @@
           estadoHtml = `<span class="etiqueta estado">${esc(i.estado)}</span>`;
         }
 
-        let acciones = "";
+        let acciones = `<button class="terciario" onclick="abrirDetalle(${i.id})">Ver</button>`;
         if (gestor && destinos.includes("Resuelto")) {
-          acciones = `<button class="secundario" onclick="resolver(${i.id})">Resolver</button>`;
+          acciones += ` <button class="secundario" onclick="resolver(${i.id})">Resolver</button>`;
         } else if (i.estado === "Resuelto" || i.estado === "Cerrado") {
-          acciones = "✔";
+          acciones += " ✔";
         }
 
         const nota = i.nota_resolucion
           ? `<div class="nota">Resolución: ${esc(i.nota_resolucion)}</div>`
-          : "";
-
-        const estadoSla = i.estado_sla || "en_tiempo";
-        const textoSla = {
-          en_tiempo: "En tiempo",
-          en_riesgo: "En riesgo",
-          vencido: "Vencido",
-          pausado: "Pausado",
-          cumplido: "Cumplido"
-        }[estadoSla] || estadoSla;
-        const vence = i.sla_limite_resolucion
-          ? `<div class="desc">${formatearFecha(i.sla_limite_resolucion)}</div>`
           : "";
 
         return `
@@ -582,11 +761,67 @@
             <td><span class="etiqueta p${esc(i.prioridad.charAt(1))}">${esc(i.prioridad)}</span></td>
             <td class="pequeno">${esc(i.impacto)} / ${esc(i.urgencia)}</td>
             <td>${estadoHtml}</td>
-            <td><span class="etiqueta sla-${esc(estadoSla)}">${esc(textoSla)}</span>${vence}</td>
+            <td>${badgeSla(i.estado_sla, i.sla_limite_resolucion)}</td>
             <td>${formatearFecha(i.creada_en)}</td>
             <td>${acciones}</td>
           </tr>`;
       }).join("");
+    }
+
+    // ---------- Notificaciones ----------
+    async function cargarNotificaciones() {
+      try {
+        const lista = await api("/notificaciones");
+        pintarNotificaciones(lista);
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    }
+
+    function pintarNotificaciones(lista) {
+      const seccion = $("seccionNotificaciones");
+      const contador = $("contadorNotificaciones");
+      if (!lista.length) {
+        seccion.hidden = true;
+        $("listaNotificaciones").innerHTML = "";
+        return;
+      }
+
+      const noLeidas = lista.filter((n) => !n.leida).length;
+      seccion.hidden = false;
+      contador.hidden = noLeidas === 0;
+      contador.textContent = noLeidas ? `${noLeidas} sin leer` : "";
+      $("listaNotificaciones").innerHTML = lista.map((n) => `
+        <div class="comentario ${n.leida ? "" : "interno"}">
+          <div class="comentario-meta">
+            <span>${formatearFecha(n.creado_en)}</span>
+            ${n.leida ? "" : '<span class="etiqueta p1">Nueva</span>'}
+          </div>
+          <div class="comentario-texto">${esc(n.mensaje)}</div>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="terciario" onclick="verDesdeNotificacion(${n.id}, ${n.incidencia_id})">Ver ticket</button>
+            ${n.leida ? "" : `<button class="terciario" onclick="marcarNotificacionLeida(${n.id})">Marcar leída</button>`}
+          </div>
+        </div>`).join("");
+    }
+
+    async function marcarNotificacionLeida(id) {
+      try {
+        await api(`/notificaciones/${id}/leer`, { method: "POST" });
+        await cargarNotificaciones();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    }
+
+    async function verDesdeNotificacion(notificacionId, incidenciaId) {
+      try {
+        await api(`/notificaciones/${notificacionId}/leer`, { method: "POST" });
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+      await abrirDetalle(incidenciaId);
+      cargarNotificaciones();
     }
 
     async function cambiarEstado(id, estado) {
@@ -612,6 +847,193 @@
         if (error.message !== "401") mostrarMensaje(error.message);
       }
       cargar();
+    }
+
+    // ---------- Detalle del ticket ----------
+    function mensajeDetalle(texto, ok = false) {
+      const caja = $("detalleMensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    function ocultarMensajeDetalle() {
+      $("detalleMensaje").hidden = true;
+    }
+
+    async function cargarTecnicos() {
+      if (!tecnicos) tecnicos = await api("/auth/tecnicos");
+      return tecnicos;
+    }
+
+    async function abrirDetalle(id) {
+      detalleId = id;
+      ocultarMensajeDetalle();
+      $("modalDetalle").hidden = false;
+      $("detalleTitulo").textContent = "Cargando…";
+      $("detalleCodigo").textContent = "";
+      $("detalleContenido").innerHTML = '<p class="vacio">Cargando…</p>';
+      try {
+        if (esGestor()) await cargarTecnicos();
+        await cargarDetalle();
+      } catch (error) {
+        if (error.message === "401") {
+          cerrarDetalle();
+        } else {
+          mensajeDetalle(error.message);
+          $("detalleContenido").innerHTML = "";
+        }
+      }
+    }
+
+    function cerrarDetalle() {
+      detalleId = null;
+      if ($("modalDetalle")) $("modalDetalle").hidden = true;
+      if ($("detalleContenido")) $("detalleContenido").innerHTML = "";
+      if ($("detalleMensaje")) $("detalleMensaje").hidden = true;
+    }
+
+    async function cargarDetalle() {
+      if (detalleId === null) return;
+      const [ticket, comentarios, historial] = await Promise.all([
+        api(`${API}/${detalleId}`),
+        api(`${API}/${detalleId}/comentarios`),
+        api(`${API}/${detalleId}/historial`)
+      ]);
+      pintarDetalle(ticket, comentarios, historial);
+    }
+
+    function pintarDetalle(ticket, comentarios, historial) {
+      $("detalleTitulo").textContent = ticket.titulo;
+      $("detalleCodigo").textContent = `${ticket.id_legible} · #${ticket.id}`;
+
+      const gestor = esGestor();
+      const editable = ticket.estado !== "Cerrado" && ticket.estado !== "Cancelado";
+      const agente = tecnicos
+        ? tecnicos.find((t) => t.id === ticket.agente_asignado_id)
+        : null;
+      const nombreAgente = ticket.agente_asignado_id
+        ? (agente ? agente.nombre_completo : `Técnico #${ticket.agente_asignado_id}`)
+        : "Sin asignar";
+
+      let asignacion = "";
+      if (gestor) {
+        if (editable) {
+          const opciones = ['<option value="">Sin asignar</option>']
+            .concat((tecnicos || []).map((t) =>
+              `<option value="${t.id}" ${t.id === ticket.agente_asignado_id ? "selected" : ""}>${esc(t.nombre_completo)} (${esc(t.rol)})</option>`
+            ))
+            .join("");
+          asignacion = `
+            <div class="detalle-bloque">
+              <h3>Asignación</h3>
+              <div class="asignacion">
+                <select id="detalleAgente">${opciones}</select>
+                <button type="button" onclick="guardarAsignacion()">Guardar asignación</button>
+              </div>
+            </div>`;
+        } else {
+          asignacion = `
+            <div class="detalle-bloque">
+              <h3>Asignación</h3>
+              <p class="desc">El ticket está ${esc(ticket.estado.toLowerCase())} y no se puede reasignar.</p>
+            </div>`;
+        }
+      }
+
+      const comentariosHtml = comentarios.length
+        ? comentarios.map((c) => `
+            <div class="comentario ${c.es_interno ? "interno" : ""}">
+              <div class="comentario-meta">
+                <strong>${esc(c.autor ? c.autor.nombre_completo : "Usuario")}</strong>
+                <span>${esc(c.autor ? c.autor.rol : "")}</span>
+                <span>${formatearFecha(c.creado_en)}</span>
+                ${c.es_interno ? '<span class="etiqueta p2">Nota interna</span>' : ""}
+              </div>
+              <div class="comentario-texto">${esc(c.contenido)}</div>
+            </div>`).join("")
+        : '<p class="vacio">Todavía no hay comentarios</p>';
+
+      const formulario = editable
+        ? `<form onsubmit="enviarComentario(event)">
+             <label>Nuevo comentario
+               <textarea id="nuevoComentario" rows="3" required maxlength="5000" placeholder="${gestor ? "Escribe una respuesta o una nota interna" : "Escribe tu respuesta"}"></textarea>
+             </label>
+             ${gestor ? '<label class="inline"><input type="checkbox" id="comentarioInterno"> Nota interna (solo visible para el equipo técnico)</label>' : ""}
+             <button type="submit">Enviar comentario</button>
+           </form>`
+        : '<p class="desc">El ticket está cerrado y no admite nuevos comentarios.</p>';
+
+      const historialHtml = historial.length
+        ? historial.map((e) => {
+            const autor = e.usuario ? e.usuario.nombre_completo : "Sistema";
+            const cambio = e.campo
+              ? `${esc(e.campo)}: ${esc(e.valor_anterior ?? "—")} → ${esc(e.valor_nuevo ?? "—")}`
+              : esc(e.valor_nuevo ?? "");
+            return `<li><span class="fecha">${formatearFecha(e.creado_en)}</span> — <strong>${esc(autor)}</strong> — ${esc(e.accion.replaceAll("_", " "))}${cambio ? ` — ${cambio}` : ""}${e.es_interno ? ' <span class="etiqueta p2">interno</span>' : ""}</li>`;
+          }).join("")
+        : '<li class="desc">Sin eventos de auditoría</li>';
+
+      const nota = ticket.nota_resolucion
+        ? `<div class="detalle-bloque"><h3>Nota de resolución</h3><p class="detalle-desc">${esc(ticket.nota_resolucion)}</p></div>`
+        : "";
+
+      $("detalleContenido").innerHTML = `
+        <div class="detalle-meta">
+          <div><strong>Estado</strong><span class="etiqueta estado">${esc(ticket.estado)}</span></div>
+          <div><strong>Prioridad</strong><span class="etiqueta p${esc(ticket.prioridad.charAt(1))}">${esc(ticket.prioridad)}</span></div>
+          <div><strong>Tipo</strong>${esc(ticket.tipo)}</div>
+          <div><strong>Canal</strong>${esc(ticket.canal_origen)}</div>
+          <div><strong>Impacto / Urgencia</strong>${esc(ticket.impacto)} / ${esc(ticket.urgencia)}</div>
+          <div><strong>SLA</strong>${badgeSla(ticket.estado_sla, ticket.sla_limite_resolucion)}</div>
+          <div><strong>Solicitante</strong>#${ticket.solicitante_id}</div>
+          <div><strong>Técnico</strong>${esc(nombreAgente)}</div>
+        </div>
+        <p class="detalle-desc">${esc(ticket.descripcion) || '<span class="desc">Sin descripción</span>'}</p>
+        ${nota}
+        ${asignacion}
+        <div class="detalle-bloque">
+          <h3>Conversación</h3>
+          ${comentariosHtml}
+          ${formulario}
+        </div>
+        <div class="detalle-bloque">
+          <h3>Historial de auditoría</h3>
+          <ul class="historial">${historialHtml}</ul>
+        </div>`;
+    }
+
+    async function guardarAsignacion() {
+      const valor = $("detalleAgente").value;
+      try {
+        await api(`${API}/${detalleId}/asignar`, {
+          method: "POST",
+          body: JSON.stringify({ agente_id: valor ? Number(valor) : null })
+        });
+        mensajeDetalle("Técnico actualizado", true);
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function enviarComentario(evento) {
+      evento.preventDefault();
+      const contenido = $("nuevoComentario").value.trim();
+      if (!contenido) return;
+      const esInterno = $("comentarioInterno") ? $("comentarioInterno").checked : false;
+      try {
+        await api(`${API}/${detalleId}/comentarios`, {
+          method: "POST",
+          body: JSON.stringify({ contenido, es_interno: esInterno })
+        });
+        mensajeDetalle("Comentario añadido", true);
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
     }
 
     $("formIncidencia").addEventListener("submit", async (evento) => {
@@ -644,6 +1066,11 @@
     } else {
       mostrarAcceso();
     }
+
+    // Refresco periódico de avisos de SLA mientras haya sesión
+    setInterval(() => {
+      if (token) cargarNotificaciones();
+    }, 60000);
   </script>
 </body>
 

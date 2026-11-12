@@ -28,6 +28,8 @@ def motor():
 def client(motor, monkeypatch):
     # Si en tu PC existe ADMIN_EMAIL, no debe influir en los tests
     monkeypatch.delenv("ADMIN_EMAIL", raising=False)
+    # El scheduler no debe arrancar durante los tests
+    monkeypatch.delenv("SLA_SCHEDULER_ENABLED", raising=False)
     TestingSession = sessionmaker(bind=motor, autoflush=False)
 
     def get_db_de_prueba():

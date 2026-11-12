@@ -239,21 +239,14 @@ def recalcular_sla_por_cambio_prioridad(incidencia, nueva_prioridad: str):
     incidencia.sla_limite_resolucion = nuevo_limite_rt
 
 
-def calcular_estado_sla(incidencia, ahora: datetime | None = None) -> str:
-    """Calcula el estado del SLA en tiempo real: en_tiempo, en_riesgo, vencido, pausado o cumplido."""
+def porcentaje_consumido_sla(
+    incidencia, ahora: datetime | None = None
+) -> float:
+    """Devuelve la fracción de tiempo de resolución consumida (0.0 a >1.0)."""
     momento = ahora or datetime.now()
 
-    if incidencia.estado in ("Resuelto", "Cerrado"):
-        return "cumplido" if incidencia.sla_resolucion_cumplido else "vencido"
-
-    if incidencia.sla_pausado_en is not None or incidencia.estado in ESTADOS_PAUSA:
-        return "pausado"
-
     if not incidencia.sla_limite_resolucion:
-        return "en_tiempo"
-
-    if momento > incidencia.sla_limite_resolucion:
-        return "vencido"
+        return 0.0
 
     objetivo = OBJETIVOS_SLA.get(incidencia.prioridad, OBJETIVOS_SLA["P4 - Baja"])
 
@@ -271,11 +264,30 @@ def calcular_estado_sla(incidencia, ahora: datetime | None = None) -> str:
         ) - (incidencia.sla_tiempo_pausado_segundos or 0)
 
     if tiempo_total <= 0:
+        return 1.0
+
+    return max(0.0, tiempo_consumido / tiempo_total)
+
+
+def calcular_estado_sla(incidencia, ahora: datetime | None = None) -> str:
+    """Calcula el estado del SLA en tiempo real: en_tiempo, en_riesgo, vencido, pausado o cumplido."""
+    momento = ahora or datetime.now()
+
+    if incidencia.estado in ("Resuelto", "Cerrado"):
+        return "cumplido" if incidencia.sla_resolucion_cumplido else "vencido"
+
+    if incidencia.sla_pausado_en is not None or incidencia.estado in ESTADOS_PAUSA:
+        return "pausado"
+
+    if not incidencia.sla_limite_resolucion:
+        return "en_tiempo"
+
+    if momento > incidencia.sla_limite_resolucion:
         return "vencido"
 
-    porcentaje = tiempo_consumido / tiempo_total
+    porcentaje = porcentaje_consumido_sla(incidencia, momento)
 
-    # Marcar flags de alerta y breach en la instancia si se pasan como argumentos
+    # Marcar flags de alerta y breach en la instancia (no se persisten aquí)
     if porcentaje >= 1.0:
         incidencia.sla_breach_100 = True
         return "vencido"
