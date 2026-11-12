@@ -141,6 +141,16 @@ class IncidenciaRespuesta(BaseModel):
     actualizada_en: datetime
     resuelta_en: datetime | None
 
+    # Métricas y temporizadores de SLA
+    sla_limite_primera_respuesta: datetime | None = None
+    sla_limite_resolucion: datetime | None = None
+    primera_respuesta_en: datetime | None = None
+    sla_primera_respuesta_cumplido: bool | None = None
+    sla_tiempo_pausado_segundos: int = 0
+    sla_resolucion_cumplido: bool | None = None
+    sla_resolucion_vencido: bool = False
+    estado_sla: str | None = None
+
 
 class AutorComentarioRespuesta(BaseModel):
     # Sin email: un solicitante no debe ver el correo corporativo de los tecnicos

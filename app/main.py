@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from . import auditoria, auth, models, reglas, schemas
+from . import auditoria, auth, models, reglas, schemas, sla
 from .database import engine, get_db
 from .routers import auth as auth_router
 
@@ -73,6 +73,7 @@ def _cambiar_estado(incidencia: models.Incidencia, nuevo: str, nota: str | None)
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Transición no permitida: {incidencia.estado} -> {nuevo}",
         )
+    estado_anterior = incidencia.estado
     if nuevo == "Resuelto":
         if not nota:
             raise HTTPException(
@@ -81,8 +82,13 @@ def _cambiar_estado(incidencia: models.Incidencia, nuevo: str, nota: str | None)
             )
         incidencia.nota_resolucion = nota
         incidencia.resuelta_en = datetime.now()
+        sla.gestionar_transicion_estado_sla(incidencia, estado_anterior, nuevo)
+        sla.finalizar_sla_resolucion(incidencia)
     elif incidencia.estado == "Resuelto" and nuevo == "En progreso":
         incidencia.resuelta_en = None  # se reabre
+        sla.gestionar_transicion_estado_sla(incidencia, estado_anterior, nuevo)
+    else:
+        sla.gestionar_transicion_estado_sla(incidencia, estado_anterior, nuevo)
     incidencia.estado = nuevo
 
 
@@ -143,6 +149,12 @@ def crear_incidencia(
     db.add(incidencia)
     db.flush()  # la base de datos asigna el id, que es único
     incidencia.id_legible = reglas.generar_id_legible(valores["tipo"], incidencia.id)
+
+    # Inicializar SLA según la prioridad calculada
+    limite_frt, limite_rt = sla.inicializar_sla(incidencia.prioridad, incidencia.creada_en)
+    incidencia.sla_limite_primera_respuesta = limite_frt
+    incidencia.sla_limite_resolucion = limite_rt
+
     auditoria.registrar_evento(
         db,
         incidencia_id=incidencia.id,
@@ -164,6 +176,8 @@ def listar_incidencias(
     canal_origen: schemas.CanalOrigen | None = None,
     agente_asignado_id: int | None = None,
     sin_asignar: bool | None = None,
+    sla_vencido: bool | None = None,
+    sla_en_riesgo: bool | None = None,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(auth.get_current_user),
 ):
@@ -184,8 +198,16 @@ def listar_incidencias(
         )
     if sin_asignar is True:
         consulta = consulta.filter(models.Incidencia.agente_asignado_id.is_(None))
+    if sla_vencido is True:
+        consulta = consulta.filter(models.Incidencia.sla_resolucion_vencido.is_(True))
 
-    return consulta.order_by(models.Incidencia.id.desc()).all()
+    resultados = consulta.order_by(models.Incidencia.id.desc()).all()
+
+    # sla_en_riesgo: filtro en memoria (cálculo temporal dinámico)
+    if sla_en_riesgo is True:
+        resultados = [t for t in resultados if t.estado_sla == "en_riesgo"]
+
+    return resultados
 
 
 @app.get("/incidencias/{identificador}", response_model=schemas.IncidenciaRespuesta)
@@ -274,6 +296,7 @@ def actualizar_incidencia(
             valor_anterior=prioridad_anterior,
             valor_nuevo=incidencia.prioridad,
         )
+        sla.recalcular_sla_por_cambio_prioridad(incidencia, incidencia.prioridad)
 
     db.commit()
     db.refresh(incidencia)
@@ -393,6 +416,11 @@ def agregar_comentario(
     )
     db.add(comentario)
     db.flush()
+
+    # SLA: registrar primera respuesta pública de un técnico
+    if not _es_solicitante(usuario) and not es_interno:
+        sla.registrar_primera_respuesta(incidencia)
+
     auditoria.registrar_evento(
         db,
         incidencia_id=incidencia.id,

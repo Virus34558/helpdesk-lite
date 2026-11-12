@@ -1,6 +1,6 @@
 import enum
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Boolean, ForeignKey
+from sqlalchemy import String, Text, DateTime, Boolean, ForeignKey, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -64,6 +64,28 @@ class Incidencia(Base):
     )
     resuelta_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Métricas y temporizadores de SLA
+    sla_limite_primera_respuesta: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    sla_limite_resolucion: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, index=True
+    )
+    primera_respuesta_en: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True
+    )
+    sla_primera_respuesta_cumplido: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
+    sla_pausado_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    sla_tiempo_pausado_segundos: Mapped[int] = mapped_column(Integer, default=0)
+    sla_resolucion_cumplido: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
+    sla_resolucion_vencido: Mapped[bool] = mapped_column(
+        Boolean, default=False, index=True
+    )
+
     comentarios: Mapped[list["Comentario"]] = relationship(
         back_populates="incidencia",
         cascade="all, delete-orphan",
@@ -74,6 +96,12 @@ class Incidencia(Base):
         cascade="all, delete-orphan",
         order_by="RegistroAuditoria.creado_en.asc()",
     )
+
+    @property
+    def estado_sla(self) -> str:
+        from . import sla
+
+        return sla.calcular_estado_sla(self)
 
 
 class Comentario(Base):
