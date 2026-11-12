@@ -25,11 +25,14 @@ def motor():
 
 
 @pytest.fixture()
-def client(motor, monkeypatch):
+def client(motor, monkeypatch, tmp_path):
     # Si en tu PC existe ADMIN_EMAIL, no debe influir en los tests
     monkeypatch.delenv("ADMIN_EMAIL", raising=False)
     # El scheduler no debe arrancar durante los tests
     monkeypatch.delenv("SLA_SCHEDULER_ENABLED", raising=False)
+    # Nunca enviar correos reales desde los tests
+    monkeypatch.delenv("SMTP_HOST", raising=False)
+    monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
     TestingSession = sessionmaker(bind=motor, autoflush=False)
 
     def get_db_de_prueba():

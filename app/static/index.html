@@ -387,6 +387,28 @@
       align-items: center;
     }
 
+    .adjunto {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      border-bottom: 1px dashed #e4e7eb;
+    }
+
+    .adjunto:last-child {
+      border-bottom: none;
+    }
+
+    .adjunto-info {
+      min-width: 0;
+    }
+
+    .adjunto-info strong {
+      display: block;
+      overflow-wrap: anywhere;
+    }
+
     .asignacion select {
       min-width: 220px;
     }
@@ -565,6 +587,7 @@
     let modoRegistro = false;
     let detalleId = null;
     let tecnicos = null;
+    let adjuntosDetalle = [];
 
     // Evita que un texto malicioso se ejecute como HTML (XSS)
     function esc(texto) {
@@ -575,6 +598,13 @@
 
     function formatearFecha(iso) {
       return new Date(iso).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" });
+    }
+
+    function formatearBytes(bytes) {
+      if (!bytes) return "0 B";
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     }
 
     function badgeSla(estadoSla, limite) {
@@ -608,7 +638,10 @@
 
     // Todas las llamadas a la API pasan por aqui: añade el token y gestiona errores
     async function api(url, opciones = {}) {
-      const cabeceras = { "Content-Type": "application/json" };
+      const cabeceras = {};
+      if (!(opciones.body instanceof FormData)) {
+        cabeceras["Content-Type"] = "application/json";
+      }
       if (token) cabeceras.Authorization = "Bearer " + token;
       const respuesta = await fetch(url, { ...opciones, headers: cabeceras });
       let datos = null;
@@ -888,6 +921,7 @@
 
     function cerrarDetalle() {
       detalleId = null;
+      adjuntosDetalle = [];
       if ($("modalDetalle")) $("modalDetalle").hidden = true;
       if ($("detalleContenido")) $("detalleContenido").innerHTML = "";
       if ($("detalleMensaje")) $("detalleMensaje").hidden = true;
@@ -895,15 +929,17 @@
 
     async function cargarDetalle() {
       if (detalleId === null) return;
-      const [ticket, comentarios, historial] = await Promise.all([
+      const [ticket, comentarios, historial, adjuntos] = await Promise.all([
         api(`${API}/${detalleId}`),
         api(`${API}/${detalleId}/comentarios`),
-        api(`${API}/${detalleId}/historial`)
+        api(`${API}/${detalleId}/historial`),
+        api(`${API}/${detalleId}/adjuntos`)
       ]);
-      pintarDetalle(ticket, comentarios, historial);
+      pintarDetalle(ticket, comentarios, historial, adjuntos);
     }
 
-    function pintarDetalle(ticket, comentarios, historial) {
+    function pintarDetalle(ticket, comentarios, historial, adjuntos) {
+      adjuntosDetalle = adjuntos;
       $("detalleTitulo").textContent = ticket.titulo;
       $("detalleCodigo").textContent = `${ticket.id_legible} · #${ticket.id}`;
 
@@ -978,6 +1014,25 @@
         ? `<div class="detalle-bloque"><h3>Nota de resolución</h3><p class="detalle-desc">${esc(ticket.nota_resolucion)}</p></div>`
         : "";
 
+      const adjuntosHtml = adjuntos.length
+        ? adjuntos.map((a) => `
+            <div class="adjunto">
+              <div class="adjunto-info">
+                <strong>${esc(a.nombre_original)}</strong>
+                <div class="desc">${formatearBytes(a.tamano_bytes)} · ${formatearFecha(a.creado_en)}${a.es_interno ? ' · <span class="etiqueta p2">interno</span>' : ""}</div>
+              </div>
+              <button type="button" class="terciario" onclick="descargarAdjunto(${a.id})">Descargar</button>
+            </div>`).join("")
+        : '<p class="vacio">Sin adjuntos</p>';
+
+      const subidaAdjunto = editable
+        ? `<div class="asignacion" style="margin-top:10px">
+             <input type="file" id="archivoAdjunto">
+             ${gestor ? '<label class="inline"><input type="checkbox" id="adjuntoInterno"> Adjunto interno</label>' : ""}
+             <button type="button" onclick="subirAdjunto()">Subir adjunto</button>
+           </div>`
+        : "";
+
       $("detalleContenido").innerHTML = `
         <div class="detalle-meta">
           <div><strong>Estado</strong><span class="etiqueta estado">${esc(ticket.estado)}</span></div>
@@ -991,6 +1046,11 @@
         </div>
         <p class="detalle-desc">${esc(ticket.descripcion) || '<span class="desc">Sin descripción</span>'}</p>
         ${nota}
+        <div class="detalle-bloque">
+          <h3>Adjuntos</h3>
+          ${adjuntosHtml}
+          ${subidaAdjunto}
+        </div>
         ${asignacion}
         <div class="detalle-bloque">
           <h3>Conversación</h3>
@@ -1013,6 +1073,54 @@
         mensajeDetalle("Técnico actualizado", true);
         await cargarDetalle();
         await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function subirAdjunto() {
+      const entrada = $("archivoAdjunto");
+      if (!entrada || !entrada.files || !entrada.files.length) {
+        mensajeDetalle("Selecciona un archivo antes de subirlo");
+        return;
+      }
+      const formulario = new FormData();
+      formulario.append("archivo", entrada.files[0]);
+      const interno = $("adjuntoInterno") ? $("adjuntoInterno").checked : false;
+      formulario.append("es_interno", interno ? "true" : "false");
+      try {
+        await api(`${API}/${detalleId}/adjuntos`, { method: "POST", body: formulario });
+        mensajeDetalle("Adjunto subido", true);
+        await cargarDetalle();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function descargarAdjunto(id) {
+      const adjunto = adjuntosDetalle.find((a) => a.id === id);
+      try {
+        const cabeceras = {};
+        if (token) cabeceras.Authorization = "Bearer " + token;
+        const respuesta = await fetch(`/adjuntos/${id}`, { headers: cabeceras });
+        if (respuesta.status === 401 && token) {
+          cerrarSesion("Tu sesión ha caducado. Entra de nuevo.");
+          return;
+        }
+        if (!respuesta.ok) {
+          let datos = null;
+          try { datos = await respuesta.json(); } catch (e) { }
+          throw new Error(textoError(datos));
+        }
+        const blob = await respuesta.blob();
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement("a");
+        enlace.href = url;
+        enlace.download = adjunto ? adjunto.nombre_original : "adjunto";
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+        URL.revokeObjectURL(url);
       } catch (error) {
         if (error.message !== "401") mensajeDetalle(error.message);
       }

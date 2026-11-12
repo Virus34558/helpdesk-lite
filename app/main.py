@@ -1,10 +1,21 @@
 import asyncio
+import os
 import secrets
+import uuid
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
@@ -12,6 +23,7 @@ from sqlalchemy.orm import Session
 from . import (
     auditoria,
     auth,
+    correo,
     models,
     reglas,
     scheduler,
@@ -41,7 +53,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="HelpDesk Lite - ITSM",
     description="Sistema de Gestión de Helpdesk y Soporte Técnico (ITSM)",
-    version="1.7.0",
+    version="1.8.0",
     lifespan=lifespan,
 )
 
@@ -63,6 +75,94 @@ def inicio():
 
 def _es_solicitante(usuario: models.Usuario) -> bool:
     return usuario.rol == models.RolUsuario.SOLICITANTE.value
+
+
+EXTENSIONES_BLOQUEADAS = {
+    ".exe",
+    ".bat",
+    ".cmd",
+    ".sh",
+    ".vbs",
+    ".msi",
+    ".scr",
+    ".ps1",
+    ".jar",
+}
+
+
+def _directorio_uploads() -> Path:
+    return Path(os.getenv("UPLOAD_DIR", "uploads"))
+
+
+def _tamano_max_adjunto() -> int:
+    try:
+        mb = float(os.getenv("MAX_UPLOAD_MB", "25"))
+    except ValueError:
+        mb = 25.0
+    return max(1, int(mb * 1024 * 1024))
+
+
+async def _guardar_archivo(archivo: UploadFile) -> tuple[str, str, int]:
+    """Valida y guarda el archivo en disco. Devuelve nombre, almacenado y tamaño."""
+    nombre_original = (archivo.filename or "").replace("\\", "/").split("/")[-1]
+    nombre_original = nombre_original.strip()
+    if not nombre_original:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo no tiene un nombre válido",
+        )
+
+    extension = Path(nombre_original).suffix.lower()
+    if extension in EXTENSIONES_BLOQUEADAS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"La extensión {extension} no está permitida",
+        )
+
+    nombre_almacenado = f"{uuid.uuid4().hex}{extension}"
+    directorio = _directorio_uploads()
+    directorio.mkdir(parents=True, exist_ok=True)
+    destino = directorio / nombre_almacenado
+    maximo = _tamano_max_adjunto()
+    total = 0
+
+    try:
+        with destino.open("wb") as salida:
+            while trozo := await archivo.read(1024 * 1024):
+                total += len(trozo)
+                if total > maximo:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                        detail=(
+                            "El archivo supera el tamaño máximo permitido "
+                            f"({maximo // (1024 * 1024)} MB)"
+                        ),
+                    )
+                salida.write(trozo)
+    except HTTPException:
+        destino.unlink(missing_ok=True)
+        raise
+    except Exception:
+        destino.unlink(missing_ok=True)
+        raise
+
+    if total == 0:
+        destino.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El archivo está vacío",
+        )
+
+    return nombre_original, nombre_almacenado, total
+
+
+def _email_de(db: Session, usuario_id: int | None) -> str | None:
+    if usuario_id is None:
+        return None
+    usuario = db.get(models.Usuario, usuario_id)
+    if usuario is None or not usuario.activo:
+        return None
+    return usuario.email
 
 
 def _buscar_por_id_o_codigo(db: Session, identificador: str) -> models.Incidencia:
@@ -150,6 +250,7 @@ def _validar_y_asignar_agente(
 @app.post("/incidencias", response_model=schemas.IncidenciaRespuesta, status_code=201)
 def crear_incidencia(
     datos: schemas.IncidenciaCrear,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(auth.get_current_user),
 ):
@@ -193,6 +294,18 @@ def crear_incidencia(
     )
     db.commit()
     db.refresh(incidencia)
+
+    background_tasks.add_task(
+        correo.enviar_correo_seguro,
+        usuario.email,
+        f"[{incidencia.id_legible}] Incidencia registrada",
+        (
+            f"Hola {usuario.nombre_completo},\n\n"
+            f"Hemos registrado tu incidencia {incidencia.id_legible}: "
+            f"{incidencia.titulo}.\n\n"
+            "Puedes seguir su estado desde el portal."
+        ),
+    )
     return incidencia
 
 
@@ -406,6 +519,7 @@ def asignar_incidencia(
 def resolver_incidencia(
     identificador: str,
     datos: schemas.ResolverIncidencia,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _gestor: models.Usuario = Depends(solo_gestores),
 ):
@@ -421,8 +535,21 @@ def resolver_incidencia(
         valor_anterior=estado_anterior,
         valor_nuevo=datos.nota_resolucion,
     )
+    destinatario = _email_de(db, incidencia.solicitante_id)
     db.commit()
     db.refresh(incidencia)
+
+    if destinatario:
+        background_tasks.add_task(
+            correo.enviar_correo_seguro,
+            destinatario,
+            f"[{incidencia.id_legible}] Incidencia resuelta",
+            (
+                f"Tu incidencia {incidencia.id_legible} "
+                f"({incidencia.titulo}) ha sido resuelta.\n\n"
+                f"Nota de resolución:\n{datos.nota_resolucion}"
+            ),
+        )
     return incidencia
 
 
@@ -435,6 +562,7 @@ def resolver_incidencia(
 def agregar_comentario(
     identificador: str,
     datos: schemas.ComentarioCrear,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(auth.get_current_user),
 ):
@@ -492,8 +620,36 @@ def agregar_comentario(
         valor_nuevo=str(comentario.id),
         es_interno=es_interno,
     )
+
+    destinatario = None
+    asunto = ""
+    if not es_interno:
+        if _es_solicitante(usuario):
+            destinatario = _email_de(db, incidencia.agente_asignado_id)
+            asunto = (
+                f"[{incidencia.id_legible}] Nueva respuesta del solicitante"
+            )
+        else:
+            destinatario = _email_de(db, incidencia.solicitante_id)
+            asunto = (
+                f"[{incidencia.id_legible}] Nueva respuesta del equipo de soporte"
+            )
+        if destinatario == usuario.email:
+            destinatario = None
+
     db.commit()
     db.refresh(comentario)
+
+    if destinatario:
+        background_tasks.add_task(
+            correo.enviar_correo_seguro,
+            destinatario,
+            asunto,
+            (
+                f"Nueva respuesta en la incidencia {incidencia.id_legible} "
+                f"({incidencia.titulo}):\n\n{datos.contenido.strip()}"
+            ),
+        )
     return comentario
 
 
@@ -539,3 +695,134 @@ def obtener_historial_auditoria(
         consulta = consulta.filter(models.RegistroAuditoria.es_interno.is_(False))
 
     return consulta.order_by(models.RegistroAuditoria.creado_en.asc()).all()
+
+
+@app.get(
+    "/incidencias/{identificador}/adjuntos",
+    response_model=list[schemas.AdjuntoRespuesta],
+    summary="Listar los adjuntos de una incidencia",
+)
+def listar_adjuntos(
+    identificador: str,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+
+    consulta = db.query(models.Adjunto).filter(
+        models.Adjunto.incidencia_id == incidencia.id
+    )
+    if _es_solicitante(usuario):
+        consulta = consulta.filter(models.Adjunto.es_interno.is_(False))
+
+    return consulta.order_by(models.Adjunto.creado_en.asc()).all()
+
+
+@app.post(
+    "/incidencias/{identificador}/adjuntos",
+    response_model=schemas.AdjuntoRespuesta,
+    status_code=status.HTTP_201_CREATED,
+    summary="Subir un adjunto a una incidencia",
+)
+async def subir_adjunto(
+    identificador: str,
+    archivo: UploadFile = File(...),
+    es_interno: bool = Form(False),
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+
+    if incidencia.estado in ("Cerrado", "Cancelado"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "No se pueden añadir adjuntos a una incidencia en estado "
+                f"{incidencia.estado}"
+            ),
+        )
+
+    if _es_solicitante(usuario):
+        es_interno = False
+
+    nombre_original, nombre_almacenado, tamano = await _guardar_archivo(archivo)
+
+    adjunto = models.Adjunto(
+        incidencia_id=incidencia.id,
+        subido_por_id=usuario.id,
+        nombre_original=nombre_original,
+        nombre_almacenado=nombre_almacenado,
+        content_type=archivo.content_type,
+        tamano_bytes=tamano,
+        es_interno=es_interno,
+    )
+    db.add(adjunto)
+    try:
+        db.flush()
+        auditoria.registrar_evento(
+            db,
+            incidencia_id=incidencia.id,
+            usuario_id=usuario.id,
+            accion="adjunto",
+            campo="adjuntos",
+            valor_nuevo=nombre_original,
+            es_interno=es_interno,
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        (_directorio_uploads() / nombre_almacenado).unlink(missing_ok=True)
+        raise
+
+    db.refresh(adjunto)
+    return adjunto
+
+
+@app.get(
+    "/adjuntos/{adjunto_id}",
+    summary="Descargar un adjunto",
+)
+def descargar_adjunto(
+    adjunto_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    adjunto = db.get(models.Adjunto, adjunto_id)
+    if adjunto is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Adjunto no encontrado",
+        )
+
+    incidencia = db.get(models.Incidencia, adjunto.incidencia_id)
+    if incidencia is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Adjunto no encontrado",
+        )
+
+    if _es_solicitante(usuario):
+        if incidencia.solicitante_id != usuario.id or adjunto.es_interno:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Adjunto no encontrado",
+            )
+
+    if Path(adjunto.nombre_almacenado).name != adjunto.nombre_almacenado:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Adjunto no encontrado",
+        )
+
+    ruta = _directorio_uploads() / adjunto.nombre_almacenado
+    if not ruta.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="El archivo ya no está disponible",
+        )
+
+    return FileResponse(
+        ruta,
+        media_type=adjunto.content_type or "application/octet-stream",
+        filename=adjunto.nombre_original,
+    )

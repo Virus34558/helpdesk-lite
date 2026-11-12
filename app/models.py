@@ -126,6 +126,27 @@ class Comentario(Base):
     incidencia: Mapped["Incidencia"] = relationship(back_populates="comentarios")
 
 
+class Adjunto(Base):
+    __tablename__ = "adjuntos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    incidencia_id: Mapped[int] = mapped_column(
+        ForeignKey("incidencias.id"), index=True
+    )
+    subido_por_id: Mapped[int] = mapped_column(
+        ForeignKey("usuarios.id"), index=True
+    )
+    nombre_original: Mapped[str] = mapped_column(String(255))
+    nombre_almacenado: Mapped[str] = mapped_column(String(255), unique=True)
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    tamano_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    es_interno: Mapped[bool] = mapped_column(Boolean, default=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    incidencia: Mapped["Incidencia"] = relationship()
+    subido_por: Mapped["Usuario"] = relationship()
+
+
 class Notificacion(Base):
     __tablename__ = "notificaciones"
 

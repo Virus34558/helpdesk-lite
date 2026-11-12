@@ -2,7 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from . import auditoria, models, sla
+from . import auditoria, correo, models, sla
 
 # Umbral para avisar al agente (RF-4.3: advertencia al 80 %)
 PCT_ALERTA_80 = 0.8
@@ -55,6 +55,14 @@ def _notificar(
             mensaje=mensaje,
         )
     )
+
+    usuario = db.get(models.Usuario, usuario_id)
+    if usuario and usuario.email:
+        correo.enviar_correo_seguro(
+            usuario.email,
+            f"[{incidencia.id_legible}] Alerta de SLA",
+            mensaje,
+        )
     return True
 
 

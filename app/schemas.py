@@ -203,6 +203,19 @@ class RegistroAuditoriaRespuesta(BaseModel):
     creado_en: datetime
 
 
+class AdjuntoRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    incidencia_id: int
+    subido_por_id: int
+    nombre_original: str
+    content_type: str | None
+    tamano_bytes: int
+    es_interno: bool
+    creado_en: datetime
+
+
 class NotificacionRespuesta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
