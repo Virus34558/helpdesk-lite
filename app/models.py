@@ -244,6 +244,27 @@ class Notificacion(Base):
     incidencia: Mapped["Incidencia"] = relationship()
 
 
+class ArticuloConocimiento(Base):
+    __tablename__ = "articulos_conocimiento"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    titulo: Mapped[str] = mapped_column(String(255), index=True)
+    resumen: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    contenido: Mapped[str] = mapped_column(Text)
+    categoria_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categorias.id"), nullable=True, index=True
+    )
+    autor_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    es_publico: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, onupdate=datetime.now
+    )
+
+    autor: Mapped["Usuario"] = relationship()
+    categoria: Mapped["Categoria | None"] = relationship()
+
+
 class RegistroAuditoria(Base):
     __tablename__ = "registros_auditoria"
 

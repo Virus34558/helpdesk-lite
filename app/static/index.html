@@ -420,6 +420,23 @@
       gap: 8px;
       font-weight: 500;
     }
+
+    .sugerencias {
+      border: 1px solid #cbd2d9;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #f9fbfc;
+      font-size: .85rem;
+      display: grid;
+      gap: 6px;
+    }
+
+    .sugerencias .fila-sugerencia {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+    }
   </style>
 </head>
 
@@ -430,6 +447,7 @@
       <p>Gestor de incidencias IT</p>
     </div>
     <div id="sesion" hidden>
+      <button id="btnConocimiento" class="terciario" hidden onclick="abrirConocimiento()">Base de Conocimiento</button>
       <button id="btnConfig" class="terciario" hidden onclick="abrirConfiguracion()">Configuración</button>
       <span id="usuarioInfo"></span>
       <button id="btnSalir" class="salir">Cerrar sesión</button>
@@ -471,6 +489,7 @@
           <label>Título
             <input id="titulo" required minlength="3" maxlength="100" placeholder="Ej: No funciona Internet">
           </label>
+          <div id="sugerenciasConocimiento" class="sugerencias" hidden></div>
           <label>Descripción
             <textarea id="descripcion" rows="2" placeholder="Detalla el problema"></textarea>
           </label>
@@ -566,6 +585,60 @@
       </div>
       <div id="detalleMensaje" class="mensaje" hidden></div>
       <div id="detalleContenido"></div>
+    </div>
+  </div>
+
+  <!-- Base de conocimiento -->
+  <div id="modalConocimiento" class="modal" hidden>
+    <div class="modal-caja">
+      <div class="modal-cabecera">
+        <div>
+          <h2>Base de Conocimiento</h2>
+          <div class="desc">Artículos públicos e internos</div>
+        </div>
+        <button type="button" class="terciario" onclick="cerrarConocimiento()">Cerrar</button>
+      </div>
+      <div id="conocimientoMensaje" class="mensaje" hidden></div>
+
+      <div id="vistaConocimientoLista">
+        <div class="filtros">
+          <input id="buscarConocimiento" placeholder="Buscar artículos..." oninput="buscarConocimientoConRetraso()">
+          <select id="categoriaConocimiento" onchange="cargarConocimiento()">
+            <option value="">Todas las categorías</option>
+          </select>
+          <button type="button" id="btnNuevoArticulo" onclick="nuevoArticulo()" hidden>Nuevo artículo</button>
+        </div>
+        <div id="listaConocimiento"></div>
+      </div>
+
+      <div id="vistaConocimientoDetalle" hidden>
+        <button type="button" class="terciario" onclick="volverListaConocimiento()">← Volver</button>
+        <div id="detalleArticulo"></div>
+      </div>
+
+      <div id="vistaConocimientoEditor" hidden>
+        <form id="formArticulo" onsubmit="guardarArticulo(event)">
+          <label>Título
+            <input id="articuloTitulo" required minlength="3" maxlength="255">
+          </label>
+          <label>Resumen (opcional)
+            <input id="articuloResumen" maxlength="500" placeholder="Se genera automáticamente si lo dejas vacío">
+          </label>
+          <label>Categoría
+            <select id="articuloCategoria"><option value="">Sin categoría</option></select>
+          </label>
+          <label>Contenido
+            <textarea id="articuloContenido" rows="10" required maxlength="20000" placeholder="Escribe la solución o el procedimiento"></textarea>
+          </label>
+          <label class="inline">
+            <input type="checkbox" id="articuloPublico" checked> Público (visible para solicitantes)
+          </label>
+          <div class="asignacion">
+            <button type="submit">Guardar artículo</button>
+            <button type="button" class="terciario" onclick="volverListaConocimiento()">Cancelar</button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -689,6 +762,10 @@
     let categorias = [];
     let grupos = [];
     let reglasConfig = [];
+    let articuloActual = null;
+    let articuloEditandoId = null;
+    let temporizadorSugerencias = null;
+    let temporizadorBusquedaConocimiento = null;
 
     // Evita que un texto malicioso se ejecute como HTML (XSS)
     function esc(texto) {
@@ -812,6 +889,10 @@
       categorias = [];
       grupos = [];
       reglasConfig = [];
+      articuloActual = null;
+      articuloEditandoId = null;
+      $("btnConocimiento").hidden = true;
+      cerrarConocimiento();
       sessionStorage.removeItem("token");
       sessionStorage.removeItem("usuario");
       cerrarDetalle();
@@ -832,7 +913,9 @@
       $("vistaAcceso").hidden = true;
       $("vistaApp").hidden = false;
       $("sesion").hidden = false;
+      $("btnConocimiento").hidden = false;
       $("btnConfig").hidden = !esAdmin();
+      ocultarSugerencias();
       $("usuarioInfo").textContent = `${usuario.nombre_completo} (${usuario.rol})`;
       $("camposGestor").hidden = !esGestor();
       await cargarCatalogos();
@@ -874,6 +957,15 @@
         $("reglaGrupo").innerHTML =
           '<option value="">Sin cambio</option>' +
           grupos.map((g) => `<option value="${g.id}">${esc(g.nombre)}</option>`).join("");
+      }
+      if ($("categoriaConocimiento")) {
+        $("categoriaConocimiento").innerHTML = opcionesCategorias(
+          $("categoriaConocimiento").value,
+          true
+        );
+      }
+      if ($("articuloCategoria")) {
+        $("articuloCategoria").innerHTML = opcionesCategorias($("articuloCategoria").value);
       }
     }
 
@@ -1071,6 +1163,243 @@
         if (error.message !== "401") mostrarMensaje(error.message);
       }
       cargar();
+    }
+
+    // ---------- Base de conocimiento ----------
+    function mensajeConocimiento(texto, ok = false) {
+      const caja = $("conocimientoMensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    function ocultarMensajeConocimiento() {
+      $("conocimientoMensaje").hidden = true;
+    }
+
+    function abrirConocimiento() {
+      if (!token) return;
+      ocultarMensajeConocimiento();
+      $("modalConocimiento").hidden = false;
+      $("buscarConocimiento").value = "";
+      $("categoriaConocimiento").value = "";
+      $("btnNuevoArticulo").hidden = !esGestor();
+      articuloActual = null;
+      articuloEditandoId = null;
+      volverListaConocimiento();
+      cargarConocimiento();
+    }
+
+    function cerrarConocimiento() {
+      if ($("modalConocimiento")) $("modalConocimiento").hidden = true;
+      if ($("listaConocimiento")) $("listaConocimiento").innerHTML = "";
+      if ($("detalleArticulo")) $("detalleArticulo").innerHTML = "";
+      articuloActual = null;
+      articuloEditandoId = null;
+    }
+
+    function volverListaConocimiento() {
+      $("vistaConocimientoLista").hidden = false;
+      $("vistaConocimientoDetalle").hidden = true;
+      $("vistaConocimientoEditor").hidden = true;
+    }
+
+    async function cargarConocimiento() {
+      const params = new URLSearchParams();
+      const texto = $("buscarConocimiento").value.trim();
+      if (texto) params.set("q", texto);
+      if ($("categoriaConocimiento").value) {
+        params.set("categoria_id", $("categoriaConocimiento").value);
+      }
+      try {
+        const lista = await api(`/conocimiento?${params}`);
+        pintarListaConocimiento(lista);
+      } catch (error) {
+        if (error.message !== "401") mensajeConocimiento(error.message);
+      }
+    }
+
+    function buscarConocimientoConRetraso() {
+      clearTimeout(temporizadorBusquedaConocimiento);
+      temporizadorBusquedaConocimiento = setTimeout(cargarConocimiento, 300);
+    }
+
+    function pintarListaConocimiento(lista) {
+      const caja = $("listaConocimiento");
+      if (!lista.length) {
+        caja.innerHTML = '<p class="vacio">Sin artículos</p>';
+        return;
+      }
+      caja.innerHTML = lista.map((a) => {
+        const clasificacion = [
+          a.es_publico ? "Público" : "Interno",
+          a.categoria_id ? nombreCategoria(a.categoria_id) : ""
+        ].filter(Boolean).join(" · ");
+        return `
+          <div class="adjunto">
+            <div class="adjunto-info">
+              <strong>${esc(a.titulo)}</strong>
+              <div class="desc">${esc(clasificacion)} · ${formatearFecha(a.actualizado_en)}</div>
+              ${a.resumen ? `<div class="desc">${esc(a.resumen)}</div>` : ""}
+            </div>
+            <button type="button" class="terciario" onclick="verArticulo(${a.id})">Ver</button>
+          </div>`;
+      }).join("");
+    }
+
+    async function verArticulo(id) {
+      $("vistaConocimientoLista").hidden = true;
+      $("vistaConocimientoEditor").hidden = true;
+      $("vistaConocimientoDetalle").hidden = false;
+      $("detalleArticulo").innerHTML = '<p class="vacio">Cargando…</p>';
+      try {
+        const articulo = await api(`/conocimiento/${id}`);
+        articuloActual = articulo;
+        pintarDetalleArticulo(articulo);
+      } catch (error) {
+        volverListaConocimiento();
+        if (error.message !== "401") mensajeConocimiento(error.message);
+      }
+    }
+
+    async function abrirArticulo(id) {
+      $("modalConocimiento").hidden = false;
+      ocultarMensajeConocimiento();
+      await verArticulo(id);
+    }
+
+    function pintarDetalleArticulo(articulo) {
+      const clasificacion = [
+        articulo.es_publico ? "Público" : "Interno",
+        articulo.categoria_id ? nombreCategoria(articulo.categoria_id) : ""
+      ].filter(Boolean).join(" · ");
+      const acciones = esGestor()
+        ? `<div class="asignacion" style="margin-top:16px">
+             <button type="button" onclick="editarArticulo(${articulo.id})">Editar</button>
+             ${esAdmin() ? `<button type="button" class="terciario" onclick="eliminarArticulo(${articulo.id})">Eliminar</button>` : ""}
+           </div>`
+        : "";
+      $("detalleArticulo").innerHTML = `
+        <h2 style="margin-bottom:4px">${esc(articulo.titulo)}</h2>
+        <div class="desc">${esc(clasificacion)} · ${formatearFecha(articulo.actualizado_en)}</div>
+        <p class="detalle-desc" style="margin-top:14px">${esc(articulo.contenido)}</p>
+        ${acciones}`;
+    }
+
+    function nuevoArticulo() {
+      articuloActual = null;
+      articuloEditandoId = null;
+      $("formArticulo").reset();
+      $("articuloPublico").checked = true;
+      $("vistaConocimientoLista").hidden = true;
+      $("vistaConocimientoDetalle").hidden = true;
+      $("vistaConocimientoEditor").hidden = false;
+      ocultarMensajeConocimiento();
+      $("articuloTitulo").focus();
+    }
+
+    function editarArticulo(id) {
+      if (!articuloActual || articuloActual.id !== id) return;
+      articuloEditandoId = id;
+      $("articuloTitulo").value = articuloActual.titulo;
+      $("articuloResumen").value = articuloActual.resumen || "";
+      $("articuloCategoria").value = articuloActual.categoria_id ?? "";
+      $("articuloContenido").value = articuloActual.contenido;
+      $("articuloPublico").checked = articuloActual.es_publico;
+      $("vistaConocimientoDetalle").hidden = true;
+      $("vistaConocimientoEditor").hidden = false;
+      ocultarMensajeConocimiento();
+      $("articuloTitulo").focus();
+    }
+
+    async function guardarArticulo(evento) {
+      evento.preventDefault();
+      const cuerpo = {
+        titulo: $("articuloTitulo").value.trim(),
+        contenido: $("articuloContenido").value,
+        resumen: $("articuloResumen").value.trim() || null,
+        categoria_id: $("articuloCategoria").value
+          ? Number($("articuloCategoria").value)
+          : null,
+        es_publico: $("articuloPublico").checked
+      };
+      try {
+        const guardado = articuloEditandoId
+          ? await api(`/conocimiento/${articuloEditandoId}`, {
+            method: "PATCH",
+            body: JSON.stringify(cuerpo)
+          })
+          : await api("/conocimiento", {
+            method: "POST",
+            body: JSON.stringify(cuerpo)
+          });
+        articuloActual = guardado;
+        articuloEditandoId = null;
+        mensajeConocimiento("Artículo guardado", true);
+        await cargarConocimiento();
+        $("vistaConocimientoEditor").hidden = true;
+        $("vistaConocimientoDetalle").hidden = false;
+        pintarDetalleArticulo(guardado);
+      } catch (error) {
+        if (error.message !== "401") mensajeConocimiento(error.message);
+      }
+    }
+
+    async function eliminarArticulo(id) {
+      if (!confirm("¿Eliminar este artículo de la base de conocimiento?")) return;
+      try {
+        await api(`/conocimiento/${id}`, { method: "DELETE" });
+        articuloActual = null;
+        mensajeConocimiento("Artículo eliminado", true);
+        await cargarConocimiento();
+        volverListaConocimiento();
+      } catch (error) {
+        if (error.message !== "401") mensajeConocimiento(error.message);
+      }
+    }
+
+    function programarSugerencias() {
+      clearTimeout(temporizadorSugerencias);
+      const texto = $("titulo").value.trim();
+      if (texto.length < 3) {
+        ocultarSugerencias();
+        return;
+      }
+      temporizadorSugerencias = setTimeout(() => buscarSugerencias(texto), 300);
+    }
+
+    async function buscarSugerencias(texto) {
+      try {
+        const lista = await api(
+          `/conocimiento/sugerencias?q=${encodeURIComponent(texto)}`
+        );
+        pintarSugerencias(lista);
+      } catch (error) {
+        if (error.message !== "401") ocultarSugerencias();
+      }
+    }
+
+    function pintarSugerencias(lista) {
+      const caja = $("sugerenciasConocimiento");
+      if (!lista.length) {
+        ocultarSugerencias();
+        return;
+      }
+      caja.hidden = false;
+      caja.innerHTML =
+        '<div class="desc">Quizá te ayude algún artículo:</div>' +
+        lista.map((a) => `
+          <div class="fila-sugerencia">
+            <span>${esc(a.titulo)}</span>
+            <button type="button" class="terciario" onclick="abrirArticulo(${a.id})">Ver artículo</button>
+          </div>`).join("");
+    }
+
+    function ocultarSugerencias() {
+      const caja = $("sugerenciasConocimiento");
+      if (!caja) return;
+      caja.hidden = true;
+      caja.innerHTML = "";
     }
 
     // ---------- Detalle del ticket ----------
@@ -1665,6 +1994,7 @@
       try {
         await api(API, { method: "POST", body: JSON.stringify(cuerpo) });
         evento.target.reset();
+        ocultarSugerencias();
         mostrarMensaje("Incidencia registrada", true);
         cargar();
       } catch (error) {
@@ -1677,6 +2007,7 @@
     $("filtroSla").addEventListener("change", cargar);
     $("filtroCategoria").addEventListener("change", cargar);
     $("filtroGrupo").addEventListener("change", cargar);
+    $("titulo").addEventListener("input", programarSugerencias);
 
     // ---------- Arranque ----------
     if (token && usuario) {

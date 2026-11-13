@@ -14,6 +14,15 @@ def _nombre_limpio(valor: str | None) -> str | None:
     return valor
 
 
+def _titulo_limpio(valor: str | None) -> str | None:
+    if valor is None:
+        return None
+    valor = valor.strip()
+    if len(valor) < 3:
+        raise ValueError("El título debe tener al menos 3 caracteres")
+    return valor
+
+
 class RolUsuario(str, Enum):
     solicitante = "solicitante"
     agente = "agente"
@@ -186,6 +195,43 @@ class ReglaRespuesta(BaseModel):
     acciones: AccionesRegla
     creada_en: datetime
     actualizada_en: datetime
+
+
+class ArticuloCrear(BaseModel):
+    titulo: str = Field(min_length=3, max_length=255)
+    resumen: str | None = Field(default=None, max_length=500)
+    contenido: str = Field(min_length=1, max_length=20000)
+    categoria_id: int | None = None
+    es_publico: bool = True
+
+    _validar_titulo = field_validator("titulo")(_titulo_limpio)
+
+
+class ArticuloActualizar(BaseModel):
+    titulo: str | None = Field(default=None, min_length=3, max_length=255)
+    resumen: str | None = Field(default=None, max_length=500)
+    contenido: str | None = Field(default=None, min_length=1, max_length=20000)
+    categoria_id: int | None = None
+    es_publico: bool | None = None
+
+    _validar_titulo = field_validator("titulo")(_titulo_limpio)
+
+
+class ArticuloResumenRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    titulo: str
+    resumen: str | None
+    categoria_id: int | None
+    autor_id: int
+    es_publico: bool
+    actualizado_en: datetime
+
+
+class ArticuloRespuesta(ArticuloResumenRespuesta):
+    contenido: str
+    creado_en: datetime
 
 
 class TipoTicket(str, Enum):

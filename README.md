@@ -42,6 +42,14 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Vigilancia programada:** un job opcional revisa los SLA cada 5 minutos (configurable) y una revisión manual está disponible para supervisores/administradores.
 - **Notificaciones por email:** confirmación de alta, respuestas públicas, resolución y alertas de SLA. Se envían por SMTP si está configurado; en local se registran como envíos simulados sin bloquear la petición.
 
+### Base de Conocimiento
+- Artículos con título, resumen, contenido y categoría opcional.
+- **Visibilidad:** `Públicos` (visibles para cualquier usuario, incluidos solicitantes) o `Internos` (solo agentes, supervisores y administradores).
+- Agentes y supervisores pueden crear y editar artículos; solo el administrador puede eliminarlos.
+- **Búsqueda** por texto en título, resumen y contenido, con filtro por categoría.
+- **Deflexión de incidencias:** mientras se escribe el título de un ticket se sugieren hasta 5 artículos públicos (con *debounce*) y se pueden abrir en el momento.
+- Si no se indica resumen, se genera automáticamente a partir del contenido.
+
 ### Usuarios y control de acceso (RBAC)
 - **4 roles:** `solicitante` (usuario final), `agente`, `supervisor` y `administrador`.
 - Contraseñas con **bcrypt** y sesiones con **JWT** (Bearer, HS256) con caducidad.
@@ -65,7 +73,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 178 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos y automatización)
+- **pytest**: 186 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización y base de conocimiento)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -117,6 +125,17 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Listar / crear / actualizar / eliminar reglas | `GET /reglas`, `POST /reglas`, `PATCH /reglas/{id}`, `DELETE /reglas/{id}` | `administrador` |
 
 Las categorías y los grupos con tickets, subcategorías o reglas asociadas no se pueden borrar: devuelven `409 Conflict` y se recomienda desactivarlos.
+
+### Base de Conocimiento (`/conocimiento`)
+
+| Acción | Método y ruta | Acceso |
+|---|---|---|
+| Listar artículos (filtros `?q=` y `?categoria_id=`) | `GET /conocimiento` | Autenticado (el solicitante solo ve los públicos) |
+| Sugerir artículos públicos (`?q=`) | `GET /conocimiento/sugerencias` | Autenticado |
+| Consultar un artículo | `GET /conocimiento/{id}` | Autenticado (el solicitante no ve los internos) |
+| Crear artículo | `POST /conocimiento` | `agente`, `supervisor`, `administrador` |
+| Actualizar artículo | `PATCH /conocimiento/{id}` | `agente`, `supervisor`, `administrador` |
+| Eliminar artículo | `DELETE /conocimiento/{id}` | `administrador` |
 
 ### Notificaciones (`/notificaciones`)
 
@@ -186,6 +205,7 @@ helpdesk-lite/
 |   |-- routers/
 |   |   |-- auth.py          # Endpoints de autenticación y usuarios
 |   |   |-- categorias.py    # CRUD de categorías jerárquicas
+|   |   |-- conocimiento.py  # Base de conocimiento y sugerencias
 |   |   |-- grupos.py        # Grupos de soporte y sus miembros
 |   |   |-- notificaciones.py # Endpoints de notificaciones
 |   |   `-- reglas.py        # CRUD de reglas de automatización
@@ -211,6 +231,7 @@ helpdesk-lite/
 |   |-- test_automatizacion.py     # Tests del motor de reglas y auto-asignación
 |   |-- test_comentarios.py        # Tests de respuestas públicas y notas internas
 |   |-- test_comentarios_extra.py  # Tests adicionales del hilo de comentarios
+|   |-- test_conocimiento.py       # Tests de base de conocimiento y sugerencias
 |   |-- test_correo.py             # Tests de notificaciones por email
 |   |-- test_grupos_categorias.py  # Tests de categorías, grupos y borrado seguro
 |   |-- test_incidencias.py        # Tests de tickets, estados y asignación
@@ -241,7 +262,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] SLA con calendario laboral y pausas (FRT/RT, Stop the Clock, filtros, alertas al 80 %/100 %, breach persistido y escalado a supervisión)
 - [x] Adjuntos en los tickets (límite de tamaño, extensiones bloqueadas, adjuntos internos) y notificaciones por email
 - [x] Categorías jerárquicas, grupos de soporte y motor de reglas con auto-asignación (round-robin y carga)
-- [ ] Base de Conocimiento (Knowledge Base)
+- [x] Base de Conocimiento (artículos públicos/internos, búsqueda y sugerencias)
 - [ ] Dashboard con KPIs y exportación a CSV
 - [ ] Migraciones con Alembic
 - [ ] Paginación y búsqueda de texto completo

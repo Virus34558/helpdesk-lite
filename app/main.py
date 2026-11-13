@@ -36,6 +36,7 @@ from .database import engine, get_db
 from .migraciones import aplicar_migraciones_ligeras
 from .routers import auth as auth_router
 from .routers import categorias as categorias_router
+from .routers import conocimiento as conocimiento_router
 from .routers import grupos as grupos_router
 from .routers import notificaciones as notificaciones_router
 from .routers import reglas as reglas_router
@@ -59,7 +60,7 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(
     title="HelpDesk Lite - ITSM",
     description="Sistema de Gestión de Helpdesk y Soporte Técnico (ITSM)",
-    version="1.8.0",
+    version="1.9.0",
     lifespan=lifespan,
 )
 
@@ -68,6 +69,7 @@ app.include_router(notificaciones_router.router)
 app.include_router(categorias_router.router)
 app.include_router(grupos_router.router)
 app.include_router(reglas_router.router)
+app.include_router(conocimiento_router.router)
 
 # Quien puede gestionar incidencias (cambiar estado, impacto, asignar, resolver...)
 solo_gestores = auth.require_roles(
