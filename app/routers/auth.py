@@ -119,6 +119,7 @@ def perfil_usuario_actual(
     summary="Listar técnicos asignables (Agente, Supervisor o Administrador)",
 )
 def listar_tecnicos(
+    grupo_id: int | None = None,
     db: Session = Depends(get_db),
     _usuario_autorizado: models.Usuario = Depends(
         auth.require_roles(
@@ -128,15 +129,16 @@ def listar_tecnicos(
         )
     ),
 ):
-    return (
-        db.query(models.Usuario)
-        .filter(
-            models.Usuario.activo.is_(True),
-            models.Usuario.rol != models.RolUsuario.SOLICITANTE.value,
-        )
-        .order_by(models.Usuario.nombre_completo.asc())
-        .all()
+    consulta = db.query(models.Usuario).filter(
+        models.Usuario.activo.is_(True),
+        models.Usuario.rol != models.RolUsuario.SOLICITANTE.value,
     )
+    if grupo_id is not None:
+        consulta = consulta.join(
+            models.GrupoMiembro,
+            models.GrupoMiembro.usuario_id == models.Usuario.id,
+        ).filter(models.GrupoMiembro.grupo_id == grupo_id)
+    return consulta.order_by(models.Usuario.nombre_completo.asc()).all()
 
 
 @router.get(

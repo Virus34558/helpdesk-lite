@@ -1,5 +1,7 @@
 from datetime import datetime
 from enum import Enum
+from typing import Any, Literal
+
 from pydantic import BaseModel, ConfigDict, Field, EmailStr
 
 
@@ -42,6 +44,127 @@ class TokenRespuesta(BaseModel):
     access_token: str
     token_type: str = "bearer"
     usuario: UsuarioRespuesta
+
+
+class CategoriaCrear(BaseModel):
+    nombre: str = Field(min_length=2, max_length=100)
+    descripcion: str | None = Field(default=None, max_length=1000)
+    parent_id: int | None = None
+    activa: bool = True
+
+
+class CategoriaActualizar(BaseModel):
+    nombre: str | None = Field(default=None, min_length=2, max_length=100)
+    descripcion: str | None = Field(default=None, max_length=1000)
+    parent_id: int | None = None
+    activa: bool | None = None
+
+
+class CategoriaRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+    descripcion: str | None
+    parent_id: int | None
+    activa: bool
+    creado_en: datetime
+
+
+class MiembroGrupoRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    usuario_id: int
+    es_supervisor: bool
+    usuario: UsuarioRespuesta
+
+
+class GrupoCrear(BaseModel):
+    nombre: str = Field(min_length=2, max_length=100)
+    descripcion: str | None = Field(default=None, max_length=1000)
+    activo: bool = True
+
+
+class GrupoActualizar(BaseModel):
+    nombre: str | None = Field(default=None, min_length=2, max_length=100)
+    descripcion: str | None = Field(default=None, max_length=1000)
+    activo: bool | None = None
+
+
+class GrupoRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+    descripcion: str | None
+    activo: bool
+    turno_round_robin: int
+    miembros: list[MiembroGrupoRespuesta] = Field(default_factory=list)
+    creado_en: datetime
+
+
+CampoCondicion = Literal[
+    "tipo",
+    "canal_origen",
+    "impacto",
+    "urgencia",
+    "prioridad",
+    "categoria_id",
+    "grupo_asignado_id",
+    "solicitante_departamento",
+    "titulo",
+    "descripcion",
+]
+
+
+class CondicionRegla(BaseModel):
+    campo: CampoCondicion
+    operador: Literal["=", "!=", "contiene", "en"] = "="
+    valor: Any = None
+
+
+class AccionesRegla(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    grupo_id: int | None = None
+    agente_id: int | None = None
+    auto_asignar: Literal["round_robin", "load_balanced"] | None = None
+
+
+class ReglaCrear(BaseModel):
+    nombre: str = Field(min_length=2, max_length=120)
+    descripcion: str | None = Field(default=None, max_length=1000)
+    activa: bool = True
+    orden: int = 100
+    logica: Literal["AND", "OR"] = "AND"
+    condiciones: list[CondicionRegla] = Field(default_factory=list)
+    acciones: AccionesRegla = Field(default_factory=AccionesRegla)
+
+
+class ReglaActualizar(BaseModel):
+    nombre: str | None = Field(default=None, min_length=2, max_length=120)
+    descripcion: str | None = Field(default=None, max_length=1000)
+    activa: bool | None = None
+    orden: int | None = None
+    logica: Literal["AND", "OR"] | None = None
+    condiciones: list[CondicionRegla] | None = None
+    acciones: AccionesRegla | None = None
+
+
+class ReglaRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+    descripcion: str | None
+    activa: bool
+    orden: int
+    logica: str
+    condiciones: list[CondicionRegla]
+    acciones: AccionesRegla
+    creada_en: datetime
+    actualizada_en: datetime
 
 
 class TipoTicket(str, Enum):
@@ -98,6 +221,8 @@ class IncidenciaCrear(BaseModel):
     canal_origen: CanalOrigen = CanalOrigen.portal_web
     impacto: Impacto = Impacto.bajo
     urgencia: Urgencia = Urgencia.media
+    categoria_id: int | None = None
+    grupo_asignado_id: int | None = None
 
 
 class IncidenciaActualizar(BaseModel):
@@ -110,6 +235,8 @@ class IncidenciaActualizar(BaseModel):
     urgencia: Urgencia | None = None
     estado: Estado | None = None
     agente_asignado_id: int | None = None
+    grupo_asignado_id: int | None = None
+    categoria_id: int | None = None
     nota_resolucion: str | None = Field(default=None, min_length=5, max_length=1000)
 
 
@@ -137,6 +264,8 @@ class IncidenciaRespuesta(BaseModel):
     nota_resolucion: str | None
     solicitante_id: int
     agente_asignado_id: int | None
+    grupo_asignado_id: int | None = None
+    categoria_id: int | None = None
     creada_en: datetime
     actualizada_en: datetime
     resuelta_en: datetime | None

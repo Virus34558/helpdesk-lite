@@ -1,6 +1,15 @@
 import enum
 from datetime import datetime
-from sqlalchemy import String, Text, DateTime, Boolean, ForeignKey, Integer
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .database import Base
 
@@ -40,6 +49,71 @@ class Usuario(Base):
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
+class GrupoSoporte(Base):
+    __tablename__ = "grupos_soporte"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    activo: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    turno_round_robin: Mapped[int] = mapped_column(Integer, default=0)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    miembros: Mapped[list["GrupoMiembro"]] = relationship(
+        back_populates="grupo",
+        cascade="all, delete-orphan",
+        order_by="GrupoMiembro.id.asc()",
+    )
+
+
+class GrupoMiembro(Base):
+    __tablename__ = "grupo_miembros"
+    __table_args__ = (
+        UniqueConstraint("grupo_id", "usuario_id", name="uq_grupo_miembro"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    grupo_id: Mapped[int] = mapped_column(
+        ForeignKey("grupos_soporte.id"), index=True
+    )
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    es_supervisor: Mapped[bool] = mapped_column(Boolean, default=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    grupo: Mapped["GrupoSoporte"] = relationship(back_populates="miembros")
+    usuario: Mapped["Usuario"] = relationship()
+
+
+class Categoria(Base):
+    __tablename__ = "categorias"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(100), unique=True, index=True)
+    descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categorias.id"), nullable=True, index=True
+    )
+    activa: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class ReglaAutomatizacion(Base):
+    __tablename__ = "reglas_automatizacion"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    descripcion: Mapped[str | None] = mapped_column(Text, nullable=True)
+    activa: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    orden: Mapped[int] = mapped_column(Integer, default=100)
+    logica: Mapped[str] = mapped_column(String(3), default="AND")
+    condiciones: Mapped[list] = mapped_column(JSON, default=list)
+    acciones: Mapped[dict] = mapped_column(JSON, default=dict)
+    creada_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    actualizada_en: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.now, onupdate=datetime.now
+    )
+
+
 class Incidencia(Base):
     __tablename__ = "incidencias"
 
@@ -57,6 +131,12 @@ class Incidencia(Base):
     solicitante_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), index=True)
     agente_asignado_id: Mapped[int | None] = mapped_column(
         ForeignKey("usuarios.id"), nullable=True, index=True
+    )
+    grupo_asignado_id: Mapped[int | None] = mapped_column(
+        ForeignKey("grupos_soporte.id"), nullable=True, index=True
+    )
+    categoria_id: Mapped[int | None] = mapped_column(
+        ForeignKey("categorias.id"), nullable=True, index=True
     )
     creada_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     actualizada_en: Mapped[datetime] = mapped_column(

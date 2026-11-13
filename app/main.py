@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from . import (
     auditoria,
     auth,
+    automatizacion,
     correo,
     models,
     reglas,
@@ -32,10 +33,15 @@ from . import (
     sla_vigilancia,
 )
 from .database import engine, get_db
+from .migraciones import aplicar_migraciones_ligeras
 from .routers import auth as auth_router
+from .routers import categorias as categorias_router
+from .routers import grupos as grupos_router
 from .routers import notificaciones as notificaciones_router
+from .routers import reglas as reglas_router
 
 models.Base.metadata.create_all(bind=engine)
+aplicar_migraciones_ligeras(engine)
 
 
 @asynccontextmanager
@@ -59,6 +65,9 @@ app = FastAPI(
 
 app.include_router(auth_router.router)
 app.include_router(notificaciones_router.router)
+app.include_router(categorias_router.router)
+app.include_router(grupos_router.router)
+app.include_router(reglas_router.router)
 
 # Quien puede gestionar incidencias (cambiar estado, impacto, asignar, resolver...)
 solo_gestores = auth.require_roles(
@@ -220,6 +229,75 @@ def _cambiar_estado(incidencia: models.Incidencia, nuevo: str, nota: str | None)
     incidencia.estado = nuevo
 
 
+def _validar_categoria(
+    db: Session, categoria_id: int | None
+) -> models.Categoria | None:
+    if categoria_id is None:
+        return None
+    categoria = db.get(models.Categoria, categoria_id)
+    if categoria is None or not categoria.activa:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Categoría no encontrada o inactiva",
+        )
+    return categoria
+
+
+def _validar_grupo(
+    db: Session, grupo_id: int | None
+) -> models.GrupoSoporte | None:
+    if grupo_id is None:
+        return None
+    grupo = db.get(models.GrupoSoporte, grupo_id)
+    if grupo is None or not grupo.activo:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Grupo de soporte no encontrado o inactivo",
+        )
+    return grupo
+
+
+def _validar_y_asignar_grupo(
+    db: Session,
+    incidencia: models.Incidencia,
+    grupo_id: int | None,
+    usuario_id: int | None,
+) -> bool:
+    """Asigna el grupo y libera al agente si no pertenece a él."""
+    if grupo_id is None:
+        incidencia.grupo_asignado_id = None
+        return False
+
+    grupo = _validar_grupo(db, grupo_id)
+    if incidencia.grupo_asignado_id == grupo.id:
+        return False
+
+    incidencia.grupo_asignado_id = grupo.id
+    if incidencia.agente_asignado_id:
+        pertenece = (
+            db.query(models.GrupoMiembro)
+            .filter(
+                models.GrupoMiembro.grupo_id == grupo.id,
+                models.GrupoMiembro.usuario_id == incidencia.agente_asignado_id,
+            )
+            .first()
+        )
+        if pertenece is None:
+            anterior = incidencia.agente_asignado_id
+            incidencia.agente_asignado_id = None
+            auditoria.registrar_evento(
+                db,
+                incidencia.id,
+                usuario_id,
+                accion="asignacion_tecnico",
+                campo="agente_asignado_id",
+                valor_anterior=str(anterior),
+                valor_nuevo=None,
+                es_interno=True,
+            )
+    return True
+
+
 def _validar_y_asignar_agente(
     db: Session, incidencia: models.Incidencia, agente_id: int | None
 ):
@@ -239,6 +317,20 @@ def _validar_y_asignar_agente(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Solo se pueden asignar incidencias a personal de soporte (agente, supervisor o administrador)",
         )
+    if incidencia.grupo_asignado_id is not None:
+        pertenece = (
+            db.query(models.GrupoMiembro)
+            .filter(
+                models.GrupoMiembro.grupo_id == incidencia.grupo_asignado_id,
+                models.GrupoMiembro.usuario_id == agente.id,
+            )
+            .first()
+        )
+        if pertenece is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El técnico no pertenece al grupo asignado a la incidencia",
+            )
 
     incidencia.agente_asignado_id = agente.id
 
@@ -266,8 +358,12 @@ def crear_incidencia(
         # Impacto y urgencia los fija el personal de soporte, no el solicitante
         valores["impacto"] = "Bajo"
         valores["urgencia"] = "Media"
-        # El canal de origen lo decide el sistema, no el usuario
+        # El canal de origen y el grupo los decide el sistema, no el usuario
         valores["canal_origen"] = "Portal Web"
+        valores["grupo_asignado_id"] = None
+
+    _validar_categoria(db, valores.get("categoria_id"))
+    _validar_grupo(db, valores.get("grupo_asignado_id"))
 
     incidencia = models.Incidencia(
         **valores,
@@ -283,6 +379,8 @@ def crear_incidencia(
     limite_frt, limite_rt = sla.inicializar_sla(incidencia.prioridad, incidencia.creada_en)
     incidencia.sla_limite_primera_respuesta = limite_frt
     incidencia.sla_limite_resolucion = limite_rt
+
+    automatizacion.aplicar_reglas(db, incidencia, usuario_id=None)
 
     auditoria.registrar_evento(
         db,
@@ -306,6 +404,19 @@ def crear_incidencia(
             "Puedes seguir su estado desde el portal."
         ),
     )
+
+    if incidencia.agente_asignado_id and incidencia.agente_asignado_id != usuario.id:
+        email_agente = _email_de(db, incidencia.agente_asignado_id)
+        if email_agente:
+            background_tasks.add_task(
+                correo.enviar_correo_seguro,
+                email_agente,
+                f"[{incidencia.id_legible}] Incidencia asignada",
+                (
+                    f"Se te ha asignado la incidencia {incidencia.id_legible}: "
+                    f"{incidencia.titulo}."
+                ),
+            )
     return incidencia
 
 
@@ -315,8 +426,11 @@ def listar_incidencias(
     prioridad: schemas.Prioridad | None = None,
     tipo: schemas.TipoTicket | None = None,
     canal_origen: schemas.CanalOrigen | None = None,
+    categoria_id: int | None = None,
+    grupo_asignado_id: int | None = None,
     agente_asignado_id: int | None = None,
     sin_asignar: bool | None = None,
+    sin_grupo: bool | None = None,
     sla_vencido: bool | None = None,
     sla_en_riesgo: bool | None = None,
     db: Session = Depends(get_db),
@@ -333,12 +447,20 @@ def listar_incidencias(
         consulta = consulta.filter(models.Incidencia.tipo == tipo.value)
     if canal_origen:
         consulta = consulta.filter(models.Incidencia.canal_origen == canal_origen.value)
+    if categoria_id is not None:
+        consulta = consulta.filter(models.Incidencia.categoria_id == categoria_id)
+    if grupo_asignado_id is not None:
+        consulta = consulta.filter(
+            models.Incidencia.grupo_asignado_id == grupo_asignado_id
+        )
     if agente_asignado_id is not None:
         consulta = consulta.filter(
             models.Incidencia.agente_asignado_id == agente_asignado_id
         )
     if sin_asignar is True:
         consulta = consulta.filter(models.Incidencia.agente_asignado_id.is_(None))
+    if sin_grupo is True:
+        consulta = consulta.filter(models.Incidencia.grupo_asignado_id.is_(None))
     if sla_vencido is True:
         # Incluye tanto los vencimientos ya sellados (tickets resueltos tarde)
         # como los tickets abiertos cuyo límite de resolución ya pasó.
@@ -385,6 +507,32 @@ def revisar_sla_manual(
     return sla_vigilancia.revisar_slas(db)
 
 
+@app.post(
+    "/incidencias/{identificador}/aplicar-reglas",
+    response_model=schemas.IncidenciaRespuesta,
+    summary="Reevaluar reglas de automatización (Administrador)",
+)
+def aplicar_reglas_incidencia(
+    identificador: str,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(
+        auth.require_roles(models.RolUsuario.ADMINISTRADOR)
+    ),
+):
+    incidencia = _buscar_por_id_o_codigo(db, identificador)
+    if incidencia.estado in ("Cerrado", "Cancelado"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se pueden aplicar reglas a una incidencia en estado {incidencia.estado}",
+        )
+    automatizacion.aplicar_reglas(
+        db, incidencia, usuario_id=_admin.id, permitir_reasignar=True
+    )
+    db.commit()
+    db.refresh(incidencia)
+    return incidencia
+
+
 @app.get("/incidencias/{identificador}", response_model=schemas.IncidenciaRespuesta)
 def obtener_incidencia(
     identificador: str,
@@ -410,6 +558,7 @@ def actualizar_incidencia(
         )
 
     cambios = datos.model_dump(exclude_unset=True)
+    campos_enviados = set(cambios)
     nuevo_estado = cambios.pop("estado", None)
     nota = cambios.pop("nota_resolucion", None)
 
@@ -429,6 +578,45 @@ def actualizar_incidencia(
             valor_anterior=estado_anterior,
             valor_nuevo=nuevo_estado,
         )
+
+    if "grupo_asignado_id" in cambios:
+        grupo_id = cambios.pop("grupo_asignado_id")
+        grupo_anterior = incidencia.grupo_asignado_id
+        if grupo_id is not None:
+            _validar_grupo(db, grupo_id)
+        _validar_y_asignar_grupo(db, incidencia, grupo_id, _gestor.id)
+        if grupo_anterior != incidencia.grupo_asignado_id:
+            auditoria.registrar_evento(
+                db,
+                incidencia.id,
+                _gestor.id,
+                accion="asignacion_grupo",
+                campo="grupo_asignado_id",
+                valor_anterior=str(grupo_anterior) if grupo_anterior else None,
+                valor_nuevo=(
+                    str(incidencia.grupo_asignado_id)
+                    if incidencia.grupo_asignado_id
+                    else None
+                ),
+            )
+
+    if "categoria_id" in cambios:
+        categoria_id = cambios.pop("categoria_id")
+        _validar_categoria(db, categoria_id)
+        categoria_anterior = incidencia.categoria_id
+        if categoria_anterior != categoria_id:
+            incidencia.categoria_id = categoria_id
+            auditoria.registrar_evento(
+                db,
+                incidencia.id,
+                _gestor.id,
+                accion="modificacion",
+                campo="categoria_id",
+                valor_anterior=(
+                    str(categoria_anterior) if categoria_anterior else None
+                ),
+                valor_nuevo=str(categoria_id) if categoria_id else None,
+            )
 
     if "agente_asignado_id" in cambios:
         agente_id = cambios.pop("agente_asignado_id")
@@ -472,6 +660,22 @@ def actualizar_incidencia(
             valor_nuevo=incidencia.prioridad,
         )
         sla.recalcular_sla_por_cambio_prioridad(incidencia, incidencia.prioridad)
+
+    disparadores = {
+        "categoria_id",
+        "grupo_asignado_id",
+        "tipo",
+        "canal_origen",
+        "impacto",
+        "urgencia",
+    }
+    if campos_enviados & disparadores:
+        automatizacion.aplicar_reglas(
+            db,
+            incidencia,
+            usuario_id=_gestor.id,
+            permitir_reasignar="agente_asignado_id" not in campos_enviados,
+        )
 
     db.commit()
     db.refresh(incidencia)

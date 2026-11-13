@@ -430,6 +430,7 @@
       <p>Gestor de incidencias IT</p>
     </div>
     <div id="sesion" hidden>
+      <button id="btnConfig" class="terciario" hidden onclick="abrirConfiguracion()">Configuración</button>
       <span id="usuarioInfo"></span>
       <button id="btnSalir" class="salir">Cerrar sesión</button>
     </div>
@@ -473,6 +474,9 @@
           <label>Descripción
             <textarea id="descripcion" rows="2" placeholder="Detalla el problema"></textarea>
           </label>
+          <label>Categoría
+            <select id="categoria"></select>
+          </label>
           <div id="camposGestor" class="fila" hidden>
             <label>Impacto
               <select id="impacto">
@@ -488,6 +492,9 @@
                 <option>Alta</option>
                 <option>Crítica</option>
               </select>
+            </label>
+            <label>Grupo de soporte
+              <select id="grupoAsignado"></select>
             </label>
           </div>
           <button type="submit">Registrar incidencia</button>
@@ -518,6 +525,12 @@
             <option value="">SLA: todos</option>
             <option value="en_riesgo">SLA en riesgo</option>
             <option value="vencido">SLA vencido</option>
+          </select>
+          <select id="filtroCategoria">
+            <option value="">Todas las categorías</option>
+          </select>
+          <select id="filtroGrupo">
+            <option value="">Todos los grupos</option>
           </select>
         </div>
         <div class="tabla-scroll">
@@ -556,6 +569,91 @@
     </div>
   </div>
 
+  <!-- Configuración (solo administradores) -->
+  <div id="modalConfig" class="modal" hidden>
+    <div class="modal-caja">
+      <div class="modal-cabecera">
+        <div>
+          <h2>Configuración</h2>
+          <div class="desc">Categorías, grupos y reglas de automatización</div>
+        </div>
+        <button type="button" class="terciario" onclick="cerrarConfiguracion()">Cerrar</button>
+      </div>
+      <div id="configMensaje" class="mensaje" hidden></div>
+
+      <div class="detalle-bloque">
+        <h3>Categorías</h3>
+        <div id="configCategorias"></div>
+        <form onsubmit="crearCategoria(event)" class="asignacion" style="margin-top:10px">
+          <input id="nuevaCategoria" required minlength="2" maxlength="100" placeholder="Nueva categoría">
+          <select id="nuevaCategoriaPadre"><option value="">Sin padre</option></select>
+          <button type="submit">Crear categoría</button>
+        </form>
+      </div>
+
+      <div class="detalle-bloque">
+        <h3>Grupos de soporte</h3>
+        <div id="configGrupos"></div>
+        <form onsubmit="crearGrupo(event)" class="asignacion" style="margin-top:10px">
+          <input id="nuevoGrupo" required minlength="2" maxlength="100" placeholder="Nuevo grupo">
+          <button type="submit">Crear grupo</button>
+        </form>
+      </div>
+
+      <div class="detalle-bloque">
+        <h3>Reglas de automatización</h3>
+        <div id="configReglas"></div>
+        <form onsubmit="crearRegla(event)" class="fila" style="margin-top:12px">
+          <label>Nombre
+            <input id="reglaNombre" required minlength="2" maxlength="120" placeholder="Ej: SAP a Consultores ERP">
+          </label>
+          <label>Categoría
+            <select id="reglaCategoria"><option value="">Cualquiera</option></select>
+          </label>
+          <label>Impacto
+            <select id="reglaImpacto">
+              <option value="">Cualquiera</option>
+              <option>Bajo</option>
+              <option>Medio</option>
+              <option>Alto</option>
+            </select>
+          </label>
+          <label>Urgencia
+            <select id="reglaUrgencia">
+              <option value="">Cualquiera</option>
+              <option>Baja</option>
+              <option>Media</option>
+              <option>Alta</option>
+              <option>Crítica</option>
+            </select>
+          </label>
+          <label>Grupo destino
+            <select id="reglaGrupo"><option value="">Sin cambio</option></select>
+          </label>
+          <label>Auto-asignación
+            <select id="reglaModo">
+              <option value="">No asignar</option>
+              <option value="round_robin">Round-robin</option>
+              <option value="load_balanced">Carga equilibrada</option>
+            </select>
+          </label>
+          <label>Lógica de condiciones
+            <select id="reglaLogica">
+              <option>AND</option>
+              <option>OR</option>
+            </select>
+          </label>
+          <label class="inline">
+            <input type="checkbox" id="reglaActiva" checked> Activa
+          </label>
+          <div style="grid-column:1/-1">
+            <button type="submit">Crear regla</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
   <script>
     const API = "/incidencias";
 
@@ -588,6 +686,9 @@
     let detalleId = null;
     let tecnicos = null;
     let adjuntosDetalle = [];
+    let categorias = [];
+    let grupos = [];
+    let reglasConfig = [];
 
     // Evita que un texto malicioso se ejecute como HTML (XSS)
     function esc(texto) {
@@ -617,6 +718,48 @@
 
     function esGestor() {
       return usuario && usuario.rol !== "solicitante";
+    }
+
+    function esAdmin() {
+      return usuario && usuario.rol === "administrador";
+    }
+
+    function nombreCategoria(id) {
+      const categoria = categorias.find((c) => c.id === id);
+      return categoria ? categoria.nombre : "Sin categoría";
+    }
+
+    function nombreGrupo(id) {
+      const grupo = grupos.find((g) => g.id === id);
+      return grupo ? grupo.nombre : "Sin grupo";
+    }
+
+    function opcionesCategorias(seleccionada, todas = false) {
+      const inicial = todas
+        ? '<option value="">Todas las categorías</option>'
+        : '<option value="">Sin categoría</option>';
+      return inicial + categorias.map((c) =>
+        `<option value="${c.id}" ${String(c.id) === String(seleccionada) ? "selected" : ""}>${esc(c.nombre)}</option>`
+      ).join("");
+    }
+
+    function opcionesGrupos(seleccionado, todos = false) {
+      const inicial = todos
+        ? '<option value="">Todos los grupos</option>'
+        : '<option value="">Sin grupo</option>';
+      return inicial + grupos.map((g) =>
+        `<option value="${g.id}" ${String(g.id) === String(seleccionado) ? "selected" : ""}>${esc(g.nombre)}</option>`
+      ).join("");
+    }
+
+    function opcionesTecnicos(seleccionado, idsPermitidos = null) {
+      let lista = tecnicos || [];
+      if (idsPermitidos) {
+        lista = lista.filter((t) => idsPermitidos.includes(t.id));
+      }
+      return '<option value="">Sin asignar</option>' + lista.map((t) =>
+        `<option value="${t.id}" ${String(t.id) === String(seleccionado) ? "selected" : ""}>${esc(t.nombre_completo)} (${esc(t.rol)})</option>`
+      ).join("");
     }
 
     function mostrarMensaje(texto, ok = false) {
@@ -666,6 +809,9 @@
       token = null;
       usuario = null;
       tecnicos = null;
+      categorias = [];
+      grupos = [];
+      reglasConfig = [];
       sessionStorage.removeItem("token");
       sessionStorage.removeItem("usuario");
       cerrarDetalle();
@@ -681,15 +827,54 @@
       actualizarModo();
     }
 
-    function mostrarApp() {
+    async function mostrarApp() {
       ocultarMensaje();
       $("vistaAcceso").hidden = true;
       $("vistaApp").hidden = false;
       $("sesion").hidden = false;
+      $("btnConfig").hidden = !esAdmin();
       $("usuarioInfo").textContent = `${usuario.nombre_completo} (${usuario.rol})`;
       $("camposGestor").hidden = !esGestor();
+      await cargarCatalogos();
       cargar();
       cargarNotificaciones();
+    }
+
+    async function cargarCatalogos() {
+      try {
+        const promesas = [api("/categorias")];
+        if (esGestor()) promesas.push(api("/grupos"));
+        const [listaCategorias, listaGrupos] = await Promise.all(promesas);
+        categorias = listaCategorias;
+        grupos = listaGrupos || [];
+        pintarSelectsCatalogo();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    }
+
+    function pintarSelectsCatalogo() {
+      $("categoria").innerHTML = opcionesCategorias($("categoria").value);
+      $("grupoAsignado").innerHTML = opcionesGrupos($("grupoAsignado").value);
+      $("filtroCategoria").innerHTML = opcionesCategorias($("filtroCategoria").value, true);
+      $("filtroGrupo").innerHTML = opcionesGrupos($("filtroGrupo").value, true);
+      $("filtroGrupo").hidden = !esGestor();
+
+      if ($("nuevaCategoriaPadre")) {
+        $("nuevaCategoriaPadre").innerHTML =
+          '<option value="">Sin padre</option>' +
+          categorias.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join("");
+      }
+      if ($("reglaCategoria")) {
+        $("reglaCategoria").innerHTML =
+          '<option value="">Cualquiera</option>' +
+          categorias.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join("");
+      }
+      if ($("reglaGrupo")) {
+        $("reglaGrupo").innerHTML =
+          '<option value="">Sin cambio</option>' +
+          grupos.map((g) => `<option value="${g.id}">${esc(g.nombre)}</option>`).join("");
+      }
     }
 
     function actualizarModo() {
@@ -743,6 +928,8 @@
       if ($("filtroPrioridad").value) params.set("prioridad", $("filtroPrioridad").value);
       if ($("filtroSla").value === "vencido") params.set("sla_vencido", "true");
       if ($("filtroSla").value === "en_riesgo") params.set("sla_en_riesgo", "true");
+      if ($("filtroCategoria").value) params.set("categoria_id", $("filtroCategoria").value);
+      if ($("filtroGrupo").value) params.set("grupo_asignado_id", $("filtroGrupo").value);
       try {
         const lista = await api(`${API}?${params}`);
         pintar(lista);
@@ -786,11 +973,15 @@
         const nota = i.nota_resolucion
           ? `<div class="nota">Resolución: ${esc(i.nota_resolucion)}</div>`
           : "";
+        const clasificacion = [
+          i.categoria_id ? nombreCategoria(i.categoria_id) : "",
+          i.grupo_asignado_id ? nombreGrupo(i.grupo_asignado_id) : ""
+        ].filter(Boolean).join(" · ");
 
         return `
           <tr>
             <td>${i.id}</td>
-            <td>${esc(i.titulo)}<div class="desc">${esc(i.descripcion)}</div>${nota}</td>
+            <td>${esc(i.titulo)}${clasificacion ? `<div class="desc">${esc(clasificacion)}</div>` : ""}<div class="desc">${esc(i.descripcion)}</div>${nota}</td>
             <td><span class="etiqueta p${esc(i.prioridad.charAt(1))}">${esc(i.prioridad)}</span></td>
             <td class="pequeno">${esc(i.impacto)} / ${esc(i.urgencia)}</td>
             <td>${estadoHtml}</td>
@@ -951,15 +1142,31 @@
       const nombreAgente = ticket.agente_asignado_id
         ? (agente ? agente.nombre_completo : `Técnico #${ticket.agente_asignado_id}`)
         : "Sin asignar";
+      const grupoActual = grupos.find((g) => g.id === ticket.grupo_asignado_id);
+      const idsGrupo = grupoActual
+        ? grupoActual.miembros.map((m) => m.usuario_id)
+        : null;
+
+      let clasificacion = "";
+      if (gestor && editable) {
+        clasificacion = `
+          <div class="detalle-bloque">
+            <h3>Clasificación</h3>
+            <div class="asignacion">
+              <select id="detalleCategoria">${opcionesCategorias(ticket.categoria_id)}</select>
+              <select id="detalleGrupo">${opcionesGrupos(ticket.grupo_asignado_id)}</select>
+              <button type="button" onclick="guardarClasificacion()">Guardar clasificación</button>
+            </div>
+          </div>`;
+      }
 
       let asignacion = "";
       if (gestor) {
         if (editable) {
-          const opciones = ['<option value="">Sin asignar</option>']
-            .concat((tecnicos || []).map((t) =>
-              `<option value="${t.id}" ${t.id === ticket.agente_asignado_id ? "selected" : ""}>${esc(t.nombre_completo)} (${esc(t.rol)})</option>`
-            ))
-            .join("");
+          const opciones = opcionesTecnicos(
+            ticket.agente_asignado_id,
+            idsGrupo
+          );
           asignacion = `
             <div class="detalle-bloque">
               <h3>Asignación</h3>
@@ -967,6 +1174,7 @@
                 <select id="detalleAgente">${opciones}</select>
                 <button type="button" onclick="guardarAsignacion()">Guardar asignación</button>
               </div>
+              ${idsGrupo && idsGrupo.length === 0 ? '<p class="desc">El grupo asignado no tiene técnicos.</p>' : ""}
             </div>`;
         } else {
           asignacion = `
@@ -1043,9 +1251,12 @@
           <div><strong>SLA</strong>${badgeSla(ticket.estado_sla, ticket.sla_limite_resolucion)}</div>
           <div><strong>Solicitante</strong>#${ticket.solicitante_id}</div>
           <div><strong>Técnico</strong>${esc(nombreAgente)}</div>
+          <div><strong>Categoría</strong>${esc(nombreCategoria(ticket.categoria_id))}</div>
+          <div><strong>Grupo</strong>${esc(nombreGrupo(ticket.grupo_asignado_id))}</div>
         </div>
         <p class="detalle-desc">${esc(ticket.descripcion) || '<span class="desc">Sin descripción</span>'}</p>
         ${nota}
+        ${clasificacion}
         <div class="detalle-bloque">
           <h3>Adjuntos</h3>
           ${adjuntosHtml}
@@ -1063,6 +1274,26 @@
         </div>`;
     }
 
+    async function guardarClasificacion() {
+      const categoria = $("detalleCategoria").value;
+      const grupo = $("detalleGrupo").value;
+      try {
+        await api(`${API}/${detalleId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            categoria_id: categoria ? Number(categoria) : null,
+            grupo_asignado_id: grupo ? Number(grupo) : null
+          })
+        });
+        mensajeDetalle("Clasificación actualizada", true);
+        await cargarCatalogos();
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
     async function guardarAsignacion() {
       const valor = $("detalleAgente").value;
       try {
@@ -1075,6 +1306,241 @@
         await cargar();
       } catch (error) {
         if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    // ---------- Configuración (administradores) ----------
+    function mensajeConfig(texto, ok = false) {
+      const caja = $("configMensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    async function abrirConfiguracion() {
+      if (!esAdmin()) return;
+      $("modalConfig").hidden = false;
+      $("configMensaje").hidden = true;
+      await cargarConfiguracion();
+    }
+
+    function cerrarConfiguracion() {
+      $("modalConfig").hidden = true;
+    }
+
+    async function cargarConfiguracion() {
+      try {
+        const [listaCategorias, listaGrupos, listaReglas, listaTecnicos] =
+          await Promise.all([
+            api("/categorias?incluir_inactivas=true"),
+            api("/grupos?incluir_inactivos=true"),
+            api("/reglas"),
+            api("/auth/tecnicos")
+          ]);
+        categorias = listaCategorias.filter((c) => c.activa);
+        grupos = listaGrupos.filter((g) => g.activo);
+        reglasConfig = listaReglas;
+        tecnicos = listaTecnicos;
+        pintarSelectsCatalogo();
+        pintarConfigCategorias(listaCategorias);
+        pintarConfigGrupos(listaGrupos);
+        pintarConfigReglas(listaReglas);
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    function pintarConfigCategorias(lista) {
+      $("configCategorias").innerHTML = lista.length
+        ? lista.map((c) => `
+            <div class="adjunto">
+              <div class="adjunto-info">
+                <strong>${esc(c.nombre)}</strong>
+                <div class="desc">${c.activa ? "Activa" : "Inactiva"}${c.parent_id ? ` · padre #${c.parent_id}` : ""}</div>
+              </div>
+            </div>`).join("")
+        : '<p class="vacio">Sin categorías</p>';
+    }
+
+    function pintarConfigGrupos(lista) {
+      $("configGrupos").innerHTML = lista.length
+        ? lista.map((g) => {
+            const ids = new Set(g.miembros.map((m) => m.usuario_id));
+            const disponibles = (tecnicos || []).filter((t) => !ids.has(t.id));
+            const opciones = disponibles.map((t) =>
+              `<option value="${t.id}">${esc(t.nombre_completo)} (${esc(t.rol)})</option>`
+            ).join("");
+            const miembros = g.miembros.length
+              ? g.miembros.map((m) => `
+                  <span class="etiqueta estado">${esc(m.usuario.nombre_completo)}
+                    <a href="#" onclick="quitarMiembroGrupo(${g.id}, ${m.usuario_id}); return false;">×</a>
+                  </span>`).join(" ")
+              : '<span class="desc">Sin miembros</span>';
+            return `
+              <div class="adjunto">
+                <div class="adjunto-info">
+                  <strong>${esc(g.nombre)}</strong>
+                  <div class="desc">${g.activo ? "Activo" : "Inactivo"} · ${g.miembros.length} técnicos</div>
+                  <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${miembros}</div>
+                </div>
+                ${disponibles.length ? `
+                  <div class="asignacion">
+                    <select id="miembroGrupo-${g.id}">${opciones}</select>
+                    <button type="button" class="terciario" onclick="agregarMiembroGrupo(${g.id})">Añadir</button>
+                  </div>` : ""}
+              </div>`;
+          }).join("")
+        : '<p class="vacio">Sin grupos</p>';
+    }
+
+    function textoCondicion(condicion) {
+      let valor = condicion.valor;
+      if (condicion.campo === "categoria_id") {
+        valor = nombreCategoria(Number(valor));
+      } else if (Array.isArray(valor)) {
+        valor = valor.join(" / ");
+      }
+      return `${condicion.campo} ${condicion.operador} ${valor ?? "—"}`;
+    }
+
+    function pintarConfigReglas(lista) {
+      $("configReglas").innerHTML = lista.length
+        ? lista.map((r) => {
+            const condiciones = (r.condiciones || []).length
+              ? r.condiciones.map(textoCondicion).join(` ${r.logica} `)
+              : "Siempre";
+            const acciones = [];
+            if (r.acciones.grupo_id) acciones.push(`grupo: ${nombreGrupo(r.acciones.grupo_id)}`);
+            if (r.acciones.auto_asignar) acciones.push(`auto: ${r.acciones.auto_asignar}`);
+            if (r.acciones.agente_id) acciones.push(`agente: #${r.acciones.agente_id}`);
+            return `
+              <div class="adjunto">
+                <div class="adjunto-info">
+                  <strong>${esc(r.nombre)}</strong>
+                  <div class="desc">${r.activa ? "Activa" : "Inactiva"} · orden ${r.orden} · ${esc(condiciones)}</div>
+                  <div class="desc">${esc(acciones.join(" · ") || "Sin acciones")}</div>
+                </div>
+                <button type="button" class="terciario" onclick="alternarRegla(${r.id}, ${r.activa})">${r.activa ? "Desactivar" : "Activar"}</button>
+              </div>`;
+          }).join("")
+        : '<p class="vacio">Sin reglas</p>';
+    }
+
+    async function refrescarTrasConfig() {
+      await cargarCatalogos();
+      cargar();
+      if (detalleId !== null) await cargarDetalle();
+    }
+
+    async function crearCategoria(evento) {
+      evento.preventDefault();
+      const nombre = $("nuevaCategoria").value.trim();
+      const parent = $("nuevaCategoriaPadre").value;
+      try {
+        await api("/categorias", {
+          method: "POST",
+          body: JSON.stringify({
+            nombre,
+            parent_id: parent ? Number(parent) : null
+          })
+        });
+        $("nuevaCategoria").value = "";
+        mensajeConfig("Categoría creada", true);
+        await cargarConfiguracion();
+        await refrescarTrasConfig();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function crearGrupo(evento) {
+      evento.preventDefault();
+      const nombre = $("nuevoGrupo").value.trim();
+      try {
+        await api("/grupos", {
+          method: "POST",
+          body: JSON.stringify({ nombre })
+        });
+        $("nuevoGrupo").value = "";
+        mensajeConfig("Grupo creado", true);
+        await cargarConfiguracion();
+        await refrescarTrasConfig();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function agregarMiembroGrupo(grupoId) {
+      const select = $(`miembroGrupo-${grupoId}`);
+      if (!select || !select.value) return;
+      try {
+        await api(`/grupos/${grupoId}/miembros/${select.value}`, { method: "POST" });
+        mensajeConfig("Técnico añadido al grupo", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function quitarMiembroGrupo(grupoId, usuarioId) {
+      try {
+        await api(`/grupos/${grupoId}/miembros/${usuarioId}`, { method: "DELETE" });
+        mensajeConfig("Técnico quitado del grupo", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function alternarRegla(reglaId, activa) {
+      try {
+        await api(`/reglas/${reglaId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ activa: !activa })
+        });
+        mensajeConfig("Regla actualizada", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function crearRegla(evento) {
+      evento.preventDefault();
+      const condiciones = [];
+      if ($("reglaCategoria").value) {
+        condiciones.push({
+          campo: "categoria_id",
+          operador: "=",
+          valor: Number($("reglaCategoria").value)
+        });
+      }
+      if ($("reglaImpacto").value) {
+        condiciones.push({ campo: "impacto", operador: "=", valor: $("reglaImpacto").value });
+      }
+      if ($("reglaUrgencia").value) {
+        condiciones.push({ campo: "urgencia", operador: "=", valor: $("reglaUrgencia").value });
+      }
+      const acciones = {};
+      if ($("reglaGrupo").value) acciones.grupo_id = Number($("reglaGrupo").value);
+      if ($("reglaModo").value) acciones.auto_asignar = $("reglaModo").value;
+
+      try {
+        await api("/reglas", {
+          method: "POST",
+          body: JSON.stringify({
+            nombre: $("reglaNombre").value.trim(),
+            condiciones,
+            acciones,
+            logica: $("reglaLogica").value,
+            activa: $("reglaActiva").checked
+          })
+        });
+        $("reglaNombre").value = "";
+        mensajeConfig("Regla creada", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
       }
     }
 
@@ -1150,9 +1616,11 @@
         titulo: $("titulo").value,
         descripcion: $("descripcion").value
       };
+      if ($("categoria").value) cuerpo.categoria_id = Number($("categoria").value);
       if (esGestor()) {
         cuerpo.impacto = $("impacto").value;
         cuerpo.urgencia = $("urgencia").value;
+        if ($("grupoAsignado").value) cuerpo.grupo_asignado_id = Number($("grupoAsignado").value);
       }
       try {
         await api(API, { method: "POST", body: JSON.stringify(cuerpo) });
@@ -1167,6 +1635,8 @@
     $("filtroEstado").addEventListener("change", cargar);
     $("filtroPrioridad").addEventListener("change", cargar);
     $("filtroSla").addEventListener("change", cargar);
+    $("filtroCategoria").addEventListener("change", cargar);
+    $("filtroGrupo").addEventListener("change", cargar);
 
     // ---------- Arranque ----------
     if (token && usuario) {
