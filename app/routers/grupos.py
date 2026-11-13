@@ -92,7 +92,13 @@ def actualizar_grupo(
 ):
     grupo = _obtener_grupo(db, grupo_id)
     cambios = datos.model_dump(exclude_unset=True)
-    if "nombre" in cambios and cambios["nombre"] is not None:
+    for campo in ("nombre", "activo"):
+        if campo in cambios and cambios[campo] is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El campo '{campo}' no puede ser nulo",
+            )
+    if "nombre" in cambios:
         _comprobar_nombre_unico(db, cambios["nombre"], grupo_id)
         cambios["nombre"] = cambios["nombre"].strip()
 
@@ -102,6 +108,50 @@ def actualizar_grupo(
     db.commit()
     db.refresh(grupo)
     return grupo
+
+
+@router.delete(
+    "/{grupo_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar grupo de soporte (Administrador)",
+)
+def eliminar_grupo(
+    grupo_id: int,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(solo_admin),
+):
+    grupo = _obtener_grupo(db, grupo_id)
+
+    tickets = (
+        db.query(models.Incidencia.id)
+        .filter(models.Incidencia.grupo_asignado_id == grupo_id)
+        .count()
+    )
+    if tickets:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"El grupo tiene {tickets} incidencia(s) asignada(s). "
+                "Reasígnalas o desactiva el grupo en su lugar."
+            ),
+        )
+
+    reglas = [
+        regla.nombre
+        for regla in db.query(models.ReglaAutomatizacion).all()
+        if (regla.acciones or {}).get("grupo_id") == grupo_id
+    ]
+    if reglas:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "El grupo lo usan estas reglas de automatización: "
+                + ", ".join(reglas)
+            ),
+        )
+
+    db.delete(grupo)
+    db.commit()
 
 
 @router.post(

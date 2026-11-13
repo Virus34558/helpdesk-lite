@@ -137,15 +137,21 @@ def actualizar_regla(
         )
 
     cambios = datos.model_dump(exclude_unset=True)
-    if "nombre" in cambios and cambios["nombre"] is not None:
+    for campo in ("nombre", "activa", "orden", "logica", "condiciones", "acciones"):
+        if campo in cambios and cambios[campo] is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El campo '{campo}' no puede ser nulo",
+            )
+    if "nombre" in cambios:
         _comprobar_nombre_unico(db, cambios["nombre"], regla_id)
         cambios["nombre"] = cambios["nombre"].strip()
-    if "condiciones" in cambios and cambios["condiciones"] is not None:
+    if "condiciones" in cambios:
         cambios["condiciones"] = [
             schemas.CondicionRegla(**c).model_dump()
             for c in cambios["condiciones"]
         ]
-    if "acciones" in cambios and cambios["acciones"] is not None:
+    if "acciones" in cambios:
         acciones = schemas.AccionesRegla(**cambios["acciones"]).model_dump(
             exclude_none=True
         )

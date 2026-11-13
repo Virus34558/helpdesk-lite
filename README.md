@@ -25,6 +25,8 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Filtros completos:** por estado, prioridad, tipo de ticket, técnico asignado (`?agente_asignado_id=`), tickets sin asignar (`?sin_asignar=true`), SLA vencido (`?sla_vencido=true`) y SLA en riesgo (`?sla_en_riesgo=true`).
 - **Búsqueda flexible:** consulta por ID numérico (`/incidencias/1`) o por código legible (`/incidencias/INC-2026-000001`).
 - **Comunicación dual en hilo cronológico:** respuestas públicas para interactuar con el solicitante y notas internas privadas confidenciales exclusivas para el equipo técnico.
+- **Categorías jerárquicas y grupos de soporte:** clasificación por categoría/subcategoría y asignación a equipos de trabajo con sus miembros.
+- **Automatización (M3):** motor de reglas con condiciones `AND`/`OR` y acciones de grupo y auto-asignación `round-robin` o por carga (menos tickets abiertos).
 - **Reactivación automática (ITIL):** cuando un solicitante responde a una incidencia en estado `Pendiente de usuario`, esta pasa automáticamente a `En progreso`.
 - **Historial de auditoría inmutable:** línea de tiempo inalterable que registra automáticamente quién hizo qué y cuándo (creación, transiciones de estado, cambios de prioridad, asignación de técnicos, resolución y comentarios).
 - **Vista de detalle en la web:** al pulsar `Ver` se abre el ticket completo con sus datos, SLA, conversación (respuestas públicas y notas internas), asignación de técnico e historial de auditoría.
@@ -63,7 +65,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 143 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos y correo)
+- **pytest**: 178 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos y automatización)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -88,10 +90,11 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Acción | Método y ruta | Acceso |
 |---|---|---|
 | Crear incidencia / ticket | `POST /incidencias` | Autenticado |
-| Listar (con filtros: estado, prioridad, tipo, agente, sin asignar, SLA) | `GET /incidencias?estado=Nuevo&prioridad=P1 - Crítica&tipo=Incidencia&sin_asignar=true&sla_vencido=true` | Autenticado (el solicitante solo ve las suyas) |
+| Listar (con filtros: estado, prioridad, tipo, categoría, grupo, agente, sin asignar, sin grupo, SLA) | `GET /incidencias?estado=Nuevo&prioridad=P1 - Crítica&tipo=Incidencia&categoria_id=1&grupo_asignado_id=2&sin_asignar=true&sin_grupo=true&sla_vencido=true` | Autenticado (el solicitante solo ve las suyas) |
 | Consultar una (por ID numérico o código legible) | `GET /incidencias/{id_o_codigo}` | Autenticado (idem) |
 | Asignar o desasignar técnico | `POST /incidencias/{id_o_codigo}/asignar` | `agente`, `supervisor`, `administrador` |
-| Actualizar estado, impacto o urgencia | `PATCH /incidencias/{id_o_codigo}` | `agente`, `supervisor`, `administrador` |
+| Actualizar estado, tipo, impacto, urgencia, categoría o grupo | `PATCH /incidencias/{id_o_codigo}` | `agente`, `supervisor`, `administrador` |
+| Reevaluar reglas de automatización | `POST /incidencias/{id_o_codigo}/aplicar-reglas` | `administrador` |
 | Resolver (con nota obligatoria) | `POST /incidencias/{id_o_codigo}/resolver` | `agente`, `supervisor`, `administrador` |
 | Añadir comentario (público o nota interna) | `POST /incidencias/{id_o_codigo}/comentarios` | Autenticado (nota interna solo técnicos) |
 | Listar hilo de comentarios | `GET /incidencias/{id_o_codigo}/comentarios` | Autenticado (solicitante no ve notas internas) |
@@ -100,6 +103,20 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Subir adjunto | `POST /incidencias/{id_o_codigo}/adjuntos` | Autenticado (adjunto interno solo técnicos) |
 | Descargar adjunto | `GET /adjuntos/{adjunto_id}` | Autenticado (valida visibilidad del ticket) |
 | Revisar SLA y generar alertas | `POST /sla/revisar` | `supervisor`, `administrador` |
+
+### Categorías, grupos y automatización
+
+| Acción | Método y ruta | Acceso |
+|---|---|---|
+| Listar categorías (opcional `?incluir_inactivas=true` solo admin) | `GET /categorias` | Autenticado |
+| Crear / actualizar / eliminar categoría | `POST /categorias`, `PATCH /categorias/{id}`, `DELETE /categorias/{id}` | `administrador` |
+| Listar grupos (opcional `?incluir_inactivos=true` solo admin) | `GET /grupos` | `agente`, `supervisor`, `administrador` |
+| Crear / actualizar / eliminar grupo | `POST /grupos`, `PATCH /grupos/{id}`, `DELETE /grupos/{id}` | `administrador` |
+| Añadir / quitar miembro de un grupo | `POST /grupos/{id}/miembros/{usuario_id}`, `DELETE /grupos/{id}/miembros/{usuario_id}` | `administrador` |
+| Listar técnicos (opcional `?grupo_id=`) | `GET /auth/tecnicos?grupo_id=2` | `agente`, `supervisor`, `administrador` |
+| Listar / crear / actualizar / eliminar reglas | `GET /reglas`, `POST /reglas`, `PATCH /reglas/{id}`, `DELETE /reglas/{id}` | `administrador` |
+
+Las categorías y los grupos con tickets, subcategorías o reglas asociadas no se pueden borrar: devuelven `409 Conflict` y se recomienda desactivarlos.
 
 ### Notificaciones (`/notificaciones`)
 
@@ -168,27 +185,34 @@ helpdesk-lite/
 |-- app/
 |   |-- routers/
 |   |   |-- auth.py          # Endpoints de autenticación y usuarios
-|   |   `-- notificaciones.py # Endpoints de notificaciones
+|   |   |-- categorias.py    # CRUD de categorías jerárquicas
+|   |   |-- grupos.py        # Grupos de soporte y sus miembros
+|   |   |-- notificaciones.py # Endpoints de notificaciones
+|   |   `-- reglas.py        # CRUD de reglas de automatización
 |   |-- auditoria.py     # Helper de registro inmutable de auditoría
+|   |-- automatizacion.py # Motor de reglas y auto-asignación
 |   |-- correo.py        # Envío de correos por SMTP (con modo simulado)
 |   |-- auth.py          # bcrypt, JWT y dependencias de permisos
 |   |-- database.py      # Conexión a la base de datos
 |   |-- main.py          # Aplicación FastAPI y endpoints de incidencias
-|   |-- models.py        # Modelos (Usuario, Incidencia, Comentario, Adjunto, RegistroAuditoria, Notificacion)
+|   |-- migraciones.py   # Migración ligera de columnas (puente sin Alembic)
+|   |-- models.py        # Modelos (Usuario, Incidencia, Categoría, Grupo, Regla, ...)
 |   |-- reglas.py        # Matriz ITIL y máquina de estados
 |   |-- scheduler.py     # Revisión periódica de SLA en segundo plano
 |   |-- schemas.py       # Validación de datos (Pydantic)
 |   |-- sla.py           # Cálculo de SLA, calendario laboral y pausas
 |   |-- sla_vigilancia.py # Alertas al 80 %/100 % y notificaciones de escalado
 |   `-- static/
-|       `-- index.html   # Interfaz web (listado, detalle, comentarios y avisos)
+|       `-- index.html   # Interfaz web (listado, detalle, configuración y avisos)
 |-- tests/
 |   |-- test_adjuntos.py           # Tests de subida, descarga y privacidad de adjuntos
 |   |-- test_auditoria.py          # Tests de historial y trazabilidad inmutable
 |   |-- test_auth.py               # Tests de autenticación y RBAC
+|   |-- test_automatizacion.py     # Tests del motor de reglas y auto-asignación
 |   |-- test_comentarios.py        # Tests de respuestas públicas y notas internas
 |   |-- test_comentarios_extra.py  # Tests adicionales del hilo de comentarios
 |   |-- test_correo.py             # Tests de notificaciones por email
+|   |-- test_grupos_categorias.py  # Tests de categorías, grupos y borrado seguro
 |   |-- test_incidencias.py        # Tests de tickets, estados y asignación
 |   |-- test_privacidad.py         # Tests de privacidad de datos y autoría
 |   |-- test_reglas.py             # Tests de matriz ITIL y máquina de estados
@@ -216,6 +240,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Historial de auditoría inmutable
 - [x] SLA con calendario laboral y pausas (FRT/RT, Stop the Clock, filtros, alertas al 80 %/100 %, breach persistido y escalado a supervisión)
 - [x] Adjuntos en los tickets (límite de tamaño, extensiones bloqueadas, adjuntos internos) y notificaciones por email
+- [x] Categorías jerárquicas, grupos de soporte y motor de reglas con auto-asignación (round-robin y carga)
 - [ ] Base de Conocimiento (Knowledge Base)
 - [ ] Dashboard con KPIs y exportación a CSV
 - [ ] Migraciones con Alembic

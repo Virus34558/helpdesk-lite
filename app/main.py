@@ -380,8 +380,6 @@ def crear_incidencia(
     incidencia.sla_limite_primera_respuesta = limite_frt
     incidencia.sla_limite_resolucion = limite_rt
 
-    automatizacion.aplicar_reglas(db, incidencia, usuario_id=None)
-
     auditoria.registrar_evento(
         db,
         incidencia_id=incidencia.id,
@@ -390,6 +388,7 @@ def crear_incidencia(
         campo="id_legible",
         valor_nuevo=incidencia.id_legible,
     )
+    automatizacion.aplicar_reglas(db, incidencia, usuario_id=None)
     db.commit()
     db.refresh(incidencia)
 
@@ -668,6 +667,8 @@ def actualizar_incidencia(
         "canal_origen",
         "impacto",
         "urgencia",
+        "titulo",
+        "descripcion",
     }
     if campos_enviados & disparadores:
         automatizacion.aplicar_reglas(

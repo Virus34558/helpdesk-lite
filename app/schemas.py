@@ -2,7 +2,16 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, EmailStr
+from pydantic import BaseModel, ConfigDict, Field, EmailStr, field_validator
+
+
+def _nombre_limpio(valor: str | None) -> str | None:
+    if valor is None:
+        return None
+    valor = valor.strip()
+    if len(valor) < 2:
+        raise ValueError("El nombre debe tener al menos 2 caracteres")
+    return valor
 
 
 class RolUsuario(str, Enum):
@@ -52,12 +61,16 @@ class CategoriaCrear(BaseModel):
     parent_id: int | None = None
     activa: bool = True
 
+    _validar_nombre = field_validator("nombre")(_nombre_limpio)
+
 
 class CategoriaActualizar(BaseModel):
     nombre: str | None = Field(default=None, min_length=2, max_length=100)
     descripcion: str | None = Field(default=None, max_length=1000)
     parent_id: int | None = None
     activa: bool | None = None
+
+    _validar_nombre = field_validator("nombre")(_nombre_limpio)
 
 
 class CategoriaRespuesta(BaseModel):
@@ -85,11 +98,15 @@ class GrupoCrear(BaseModel):
     descripcion: str | None = Field(default=None, max_length=1000)
     activo: bool = True
 
+    _validar_nombre = field_validator("nombre")(_nombre_limpio)
+
 
 class GrupoActualizar(BaseModel):
     nombre: str | None = Field(default=None, min_length=2, max_length=100)
     descripcion: str | None = Field(default=None, max_length=1000)
     activo: bool | None = None
+
+    _validar_nombre = field_validator("nombre")(_nombre_limpio)
 
 
 class GrupoRespuesta(BaseModel):
@@ -141,6 +158,8 @@ class ReglaCrear(BaseModel):
     condiciones: list[CondicionRegla] = Field(default_factory=list)
     acciones: AccionesRegla = Field(default_factory=AccionesRegla)
 
+    _validar_nombre = field_validator("nombre")(_nombre_limpio)
+
 
 class ReglaActualizar(BaseModel):
     nombre: str | None = Field(default=None, min_length=2, max_length=120)
@@ -150,6 +169,8 @@ class ReglaActualizar(BaseModel):
     logica: Literal["AND", "OR"] | None = None
     condiciones: list[CondicionRegla] | None = None
     acciones: AccionesRegla | None = None
+
+    _validar_nombre = field_validator("nombre")(_nombre_limpio)
 
 
 class ReglaRespuesta(BaseModel):

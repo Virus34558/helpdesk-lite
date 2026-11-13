@@ -1358,6 +1358,7 @@
                 <strong>${esc(c.nombre)}</strong>
                 <div class="desc">${c.activa ? "Activa" : "Inactiva"}${c.parent_id ? ` · padre #${c.parent_id}` : ""}</div>
               </div>
+              <button type="button" class="terciario" onclick="eliminarCategoria(${c.id})">Eliminar</button>
             </div>`).join("")
         : '<p class="vacio">Sin categorías</p>';
     }
@@ -1383,6 +1384,7 @@
                   <div class="desc">${g.activo ? "Activo" : "Inactivo"} · ${g.miembros.length} técnicos</div>
                   <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${miembros}</div>
                 </div>
+                <button type="button" class="terciario" onclick="eliminarGrupo(${g.id})">Eliminar</button>
                 ${disponibles.length ? `
                   <div class="asignacion">
                     <select id="miembroGrupo-${g.id}">${opciones}</select>
@@ -1420,7 +1422,10 @@
                   <div class="desc">${r.activa ? "Activa" : "Inactiva"} · orden ${r.orden} · ${esc(condiciones)}</div>
                   <div class="desc">${esc(acciones.join(" · ") || "Sin acciones")}</div>
                 </div>
-                <button type="button" class="terciario" onclick="alternarRegla(${r.id}, ${r.activa})">${r.activa ? "Desactivar" : "Activar"}</button>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <button type="button" class="terciario" onclick="alternarRegla(${r.id}, ${r.activa})">${r.activa ? "Desactivar" : "Activar"}</button>
+                  <button type="button" class="terciario" onclick="eliminarRegla(${r.id})">Eliminar</button>
+                </div>
               </div>`;
           }).join("")
         : '<p class="vacio">Sin reglas</p>';
@@ -1486,6 +1491,41 @@
       try {
         await api(`/grupos/${grupoId}/miembros/${usuarioId}`, { method: "DELETE" });
         mensajeConfig("Técnico quitado del grupo", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function eliminarCategoria(categoriaId) {
+      if (!confirm("¿Eliminar esta categoría? Solo es posible si no tiene tickets, subcategorías ni reglas asociadas.")) return;
+      try {
+        await api(`/categorias/${categoriaId}`, { method: "DELETE" });
+        mensajeConfig("Categoría eliminada", true);
+        await cargarConfiguracion();
+        await refrescarTrasConfig();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function eliminarGrupo(grupoId) {
+      if (!confirm("¿Eliminar este grupo? Solo es posible si no tiene tickets ni reglas asociadas.")) return;
+      try {
+        await api(`/grupos/${grupoId}`, { method: "DELETE" });
+        mensajeConfig("Grupo eliminado", true);
+        await cargarConfiguracion();
+        await refrescarTrasConfig();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function eliminarRegla(reglaId) {
+      if (!confirm("¿Eliminar esta regla de automatización?")) return;
+      try {
+        await api(`/reglas/${reglaId}`, { method: "DELETE" });
+        mensajeConfig("Regla eliminada", true);
         await cargarConfiguracion();
       } catch (error) {
         if (error.message !== "401") mensajeConfig(error.message);

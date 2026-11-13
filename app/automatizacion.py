@@ -111,8 +111,8 @@ def _elegir_agente(
         )
         return min(miembros, key=lambda u: (abiertos.get(u.id, 0), u.id))
 
-    indice = grupo.turno_round_robin % len(miembros)
-    grupo.turno_round_robin += 1
+    indice = max(grupo.turno_round_robin, 0) % len(miembros)
+    grupo.turno_round_robin = max(grupo.turno_round_robin, 0) + 1
     return miembros[indice]
 
 
@@ -202,7 +202,8 @@ def aplicar_reglas(
             agente_fijo = acciones["agente_id"]
 
     grupo = db.get(models.GrupoSoporte, grupo_final) if grupo_final else None
-    if grupo is not None and not grupo.activo:
+    if grupo is None or not grupo.activo:
+        # Si la regla apunta a un grupo borrado o inactivo, se descarta.
         grupo = None
         grupo_final = None
 

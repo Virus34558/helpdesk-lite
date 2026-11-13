@@ -291,3 +291,58 @@ def test_regla_con_grupo_inexistente_falla(client, cuentas):
         headers=cuentas.admin.h,
     )
     assert respuesta.status_code == 404
+
+
+def test_historial_empieza_por_la_creacion(client, cuentas):
+    grupo = crear_grupo(client, cuentas)
+    anadir_miembro(client, cuentas, grupo["id"], cuentas.agente.id)
+    crear_regla(
+        client,
+        cuentas,
+        [],
+        {"grupo_id": grupo["id"], "auto_asignar": "load_balanced"},
+    )
+
+    ticket = crear_ticket(client, cuentas)
+    historial = client.get(
+        f"/incidencias/{ticket['id']}/historial",
+        headers=cuentas.admin.h,
+    ).json()
+    assert historial[0]["accion"] == "creacion"
+
+
+def test_editar_titulo_reevalua_reglas(client, cuentas):
+    grupo = crear_grupo(client, cuentas)
+    anadir_miembro(client, cuentas, grupo["id"], cuentas.agente.id)
+    crear_regla(
+        client,
+        cuentas,
+        [{"campo": "titulo", "operador": "contiene", "valor": "vpn"}],
+        {"grupo_id": grupo["id"], "auto_asignar": "load_balanced"},
+    )
+
+    ticket = crear_ticket(client, cuentas, titulo="Consulta general")
+    assert ticket["grupo_asignado_id"] is None
+
+    actualizado = client.patch(
+        f"/incidencias/{ticket['id']}",
+        json={"titulo": "Fallo de VPN"},
+        headers=cuentas.agente.h,
+    )
+    assert actualizado.status_code == 200
+    assert actualizado.json()["grupo_asignado_id"] == grupo["id"]
+    assert actualizado.json()["agente_asignado_id"] == cuentas.agente.id
+
+
+def test_regla_con_grupo_borrado_no_rompe(client, cuentas, motor):
+    grupo = crear_grupo(client, cuentas)
+    crear_regla(client, cuentas, [], {"grupo_id": grupo["id"]})
+
+    # Se borra el grupo directamente en la BD para simular una referencia obsoleta
+    TestingSession = sessionmaker(bind=motor)
+    with TestingSession() as db:
+        db.delete(db.get(models.GrupoSoporte, grupo["id"]))
+        db.commit()
+
+    ticket = crear_ticket(client, cuentas)
+    assert ticket["grupo_asignado_id"] is None

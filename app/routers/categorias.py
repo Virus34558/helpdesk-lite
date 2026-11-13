@@ -119,7 +119,13 @@ def actualizar_categoria(
         )
 
     cambios = datos.model_dump(exclude_unset=True)
-    if "nombre" in cambios and cambios["nombre"] is not None:
+    for campo in ("nombre", "activa"):
+        if campo in cambios and cambios[campo] is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"El campo '{campo}' no puede ser nulo",
+            )
+    if "nombre" in cambios:
         _comprobar_nombre_unico(db, cambios["nombre"], categoria_id)
         cambios["nombre"] = cambios["nombre"].strip()
     if "parent_id" in cambios:
@@ -131,3 +137,70 @@ def actualizar_categoria(
     db.commit()
     db.refresh(categoria)
     return categoria
+
+
+@router.delete(
+    "/{categoria_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Eliminar categoría (Administrador)",
+)
+def eliminar_categoria(
+    categoria_id: int,
+    db: Session = Depends(get_db),
+    _admin: models.Usuario = Depends(solo_admin),
+):
+    categoria = db.get(models.Categoria, categoria_id)
+    if categoria is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Categoría no encontrada",
+        )
+
+    tickets = (
+        db.query(models.Incidencia.id)
+        .filter(models.Incidencia.categoria_id == categoria_id)
+        .count()
+    )
+    if tickets:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"La categoría tiene {tickets} incidencia(s) asociada(s). "
+                "Reasígnalas o desactívala en su lugar."
+            ),
+        )
+
+    hijos = (
+        db.query(models.Categoria.id)
+        .filter(models.Categoria.parent_id == categoria_id)
+        .count()
+    )
+    if hijos:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"La categoría tiene {hijos} subcategoría(s). "
+                "Muévelas o elimínalas primero."
+            ),
+        )
+
+    reglas = [
+        regla.nombre
+        for regla in db.query(models.ReglaAutomatizacion).all()
+        if any(
+            (condicion or {}).get("campo") == "categoria_id"
+            and str((condicion or {}).get("valor")) == str(categoria_id)
+            for condicion in (regla.condiciones or [])
+        )
+    ]
+    if reglas:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "La categoría la usan estas reglas de automatización: "
+                + ", ".join(reglas)
+            ),
+        )
+
+    db.delete(categoria)
+    db.commit()

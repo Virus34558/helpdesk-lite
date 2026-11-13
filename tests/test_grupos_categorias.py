@@ -250,3 +250,157 @@ def test_asignar_tecnico_fuera_del_grupo_falla(client, cuentas, motor):
     )
     assert valida.status_code == 200
     assert valida.json()["agente_asignado_id"] == cuentas.agente.id
+
+
+def test_eliminar_grupo_sin_uso(client, cuentas):
+    grupo = crear_grupo(client, cuentas)
+
+    respuesta = client.delete(f"/grupos/{grupo['id']}", headers=cuentas.admin.h)
+    assert respuesta.status_code == 204
+
+    listado = client.get(
+        "/grupos?incluir_inactivos=true", headers=cuentas.admin.h
+    )
+    assert listado.json() == []
+
+    repetido = client.delete(f"/grupos/{grupo['id']}", headers=cuentas.admin.h)
+    assert repetido.status_code == 404
+
+
+def test_no_eliminar_grupo_con_tickets(client, cuentas):
+    grupo = crear_grupo(client, cuentas)
+    client.post(
+        "/incidencias",
+        json={"titulo": "Ticket del grupo", "grupo_asignado_id": grupo["id"]},
+        headers=cuentas.agente.h,
+    )
+
+    respuesta = client.delete(f"/grupos/{grupo['id']}", headers=cuentas.admin.h)
+    assert respuesta.status_code == 409
+    assert "incidencia" in respuesta.json()["detail"]
+
+
+def test_no_eliminar_grupo_usado_por_regla(client, cuentas):
+    grupo = crear_grupo(client, cuentas)
+    client.post(
+        "/reglas",
+        json={
+            "nombre": "Regla con grupo",
+            "condiciones": [],
+            "acciones": {"grupo_id": grupo["id"]},
+        },
+        headers=cuentas.admin.h,
+    )
+
+    respuesta = client.delete(f"/grupos/{grupo['id']}", headers=cuentas.admin.h)
+    assert respuesta.status_code == 409
+    assert "regla" in respuesta.json()["detail"]
+
+
+def test_eliminar_categoria_sin_uso(client, cuentas):
+    categoria = crear_categoria(client, cuentas, "Temporal")
+
+    respuesta = client.delete(
+        f"/categorias/{categoria['id']}", headers=cuentas.admin.h
+    )
+    assert respuesta.status_code == 204
+    assert client.get("/categorias", headers=cuentas.admin.h).json() == []
+
+
+def test_no_eliminar_categoria_con_tickets(client, cuentas):
+    categoria = crear_categoria(client, cuentas, "Con tickets")
+    client.post(
+        "/incidencias",
+        json={"titulo": "Ticket categorizado", "categoria_id": categoria["id"]},
+        headers=cuentas.solicitante.h,
+    )
+
+    respuesta = client.delete(
+        f"/categorias/{categoria['id']}", headers=cuentas.admin.h
+    )
+    assert respuesta.status_code == 409
+    assert "incidencia" in respuesta.json()["detail"]
+
+
+def test_no_eliminar_categoria_con_subcategorias(client, cuentas):
+    padre = crear_categoria(client, cuentas, "Padre")
+    crear_categoria(client, cuentas, "Hija", parent_id=padre["id"])
+
+    respuesta = client.delete(
+        f"/categorias/{padre['id']}", headers=cuentas.admin.h
+    )
+    assert respuesta.status_code == 409
+    assert "subcategor" in respuesta.json()["detail"]
+
+
+def test_no_eliminar_categoria_usada_por_regla(client, cuentas):
+    categoria = crear_categoria(client, cuentas, "Usada")
+    client.post(
+        "/reglas",
+        json={
+            "nombre": "Regla con categoría",
+            "condiciones": [
+                {
+                    "campo": "categoria_id",
+                    "operador": "=",
+                    "valor": categoria["id"],
+                }
+            ],
+            "acciones": {},
+        },
+        headers=cuentas.admin.h,
+    )
+
+    respuesta = client.delete(
+        f"/categorias/{categoria['id']}", headers=cuentas.admin.h
+    )
+    assert respuesta.status_code == 409
+    assert "regla" in respuesta.json()["detail"]
+
+
+def test_no_se_pueden_dejar_campos_obligatorios_nulos(client, cuentas):
+    categoria = crear_categoria(client, cuentas, "Categoría")
+    grupo = crear_grupo(client, cuentas, "Grupo")
+    regla = client.post(
+        "/reglas",
+        json={"nombre": "Regla válida", "condiciones": [], "acciones": {}},
+        headers=cuentas.admin.h,
+    ).json()
+
+    por_categoria = client.patch(
+        f"/categorias/{categoria['id']}",
+        json={"activa": None},
+        headers=cuentas.admin.h,
+    )
+    assert por_categoria.status_code == 400
+
+    por_grupo = client.patch(
+        f"/grupos/{grupo['id']}",
+        json={"nombre": None},
+        headers=cuentas.admin.h,
+    )
+    assert por_grupo.status_code == 400
+
+    por_regla = client.patch(
+        f"/reglas/{regla['id']}",
+        json={"orden": None},
+        headers=cuentas.admin.h,
+    )
+    assert por_regla.status_code == 400
+
+
+def test_nombres_solo_con_espacios_se_rechazan(client, cuentas):
+    respuesta = client.post(
+        "/grupos",
+        json={"nombre": "   "},
+        headers=cuentas.admin.h,
+    )
+    assert respuesta.status_code == 422
+
+    categoria = crear_categoria(client, cuentas, "Original")
+    cambio = client.patch(
+        f"/categorias/{categoria['id']}",
+        json={"nombre": "  "},
+        headers=cuentas.admin.h,
+    )
+    assert cambio.status_code == 422
