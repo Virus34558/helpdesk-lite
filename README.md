@@ -78,7 +78,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 191 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento y reportes)
+- **pytest**: 194 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -174,11 +174,24 @@ uvicorn app.main:app --reload
 
 Abre http://127.0.0.1:8000. El primer usuario que registres será administrador.
 
+## Migraciones de base de datos
+
+El esquema se gestiona con **Alembic**. Al arrancar, la aplicación aplica automáticamente las migraciones pendientes (`alembic upgrade head`). También puedes ejecutarlas a mano:
+
+```bash
+alembic upgrade head                      # aplicar migraciones
+alembic downgrade -1                      # revertir la última
+alembic revision --autogenerate -m "..."  # crear una migración tras cambiar models.py
+```
+
+Las bases creadas antes de adoptar Alembic se detectan y se sellan automáticamente en la revisión inicial, sin recrear tablas ni perder datos. Para gestionar las migraciones como paso separado en el despliegue, define `AUTO_MIGRATE=0` y ejecuta `alembic upgrade head` antes de arrancar la app.
+
 ## Configuración (variables de entorno)
 
 | Variable | Para qué sirve | Si no existe |
 |---|---|---|
 | `DATABASE_URL` | Dirección de la base de datos (PostgreSQL en producción) | Usa SQLite local (`helpdesk.db`) |
+| `AUTO_MIGRATE` | Aplica `alembic upgrade head` al arrancar | Activado (`1`) |
 | `SECRET_KEY` | Clave con la que se firman los tokens JWT | Se genera una aleatoria en cada arranque (las sesiones se pierden al reiniciar) |
 | `ADMIN_EMAIL` | Único correo que puede convertirse en el primer administrador | El primer usuario registrado es administrador |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Duración de la sesión | 1440 (24 horas) |
@@ -229,7 +242,7 @@ helpdesk-lite/
 |   |-- auth.py          # bcrypt, JWT y dependencias de permisos
 |   |-- database.py      # Conexión a la base de datos
 |   |-- main.py          # Aplicación FastAPI y endpoints de incidencias
-|   |-- migraciones.py   # Migración ligera de columnas (puente sin Alembic)
+|   |-- migraciones.py   # Ejecución de Alembic y sellado de bases previas
 |   |-- models.py        # Modelos (Usuario, Incidencia, Categoría, Grupo, Regla, ...)
 |   |-- reglas.py        # Matriz ITIL y máquina de estados
 |   |-- scheduler.py     # Revisión periódica de SLA en segundo plano
@@ -255,7 +268,9 @@ helpdesk-lite/
 |   |-- test_seguridad_tickets.py  # Tests de permisos y restricciones de seguridad
 |   `-- test_sla.py                # Tests de SLA, calendario laboral y pausas
 |-- docs/                # Capturas del README
+|-- migrations/          # Migraciones de Alembic (env.py y versions/)
 |-- .github/workflows/   # GitHub Actions
+|-- alembic.ini          # Configuración de Alembic
 |-- Dockerfile
 |-- requirements.txt
 |-- requirements-dev.txt
@@ -279,7 +294,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Categorías jerárquicas, grupos de soporte y motor de reglas con auto-asignación (round-robin y carga)
 - [x] Base de Conocimiento (artículos públicos/internos, búsqueda y sugerencias)
 - [x] Dashboard con KPIs (SLA, MTTA, MTTR, FCR) y exportación a CSV
-- [ ] Migraciones con Alembic
+- [x] Migraciones con Alembic
 - [ ] Paginación y búsqueda de texto completo
 
 ## Autor

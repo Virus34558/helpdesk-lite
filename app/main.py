@@ -33,7 +33,7 @@ from . import (
     sla_vigilancia,
 )
 from .database import engine, get_db
-from .migraciones import aplicar_migraciones_ligeras
+from .migraciones import aplicar_migraciones
 from .routers import auth as auth_router
 from .routers import categorias as categorias_router
 from .routers import conocimiento as conocimiento_router
@@ -42,8 +42,7 @@ from .routers import notificaciones as notificaciones_router
 from .routers import reglas as reglas_router
 from .routers import reportes as reportes_router
 
-models.Base.metadata.create_all(bind=engine)
-aplicar_migraciones_ligeras(engine)
+aplicar_migraciones(engine)
 
 
 @asynccontextmanager
