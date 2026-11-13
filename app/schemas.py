@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 from typing import Any, Literal
 
@@ -422,3 +422,40 @@ class NotificacionRespuesta(BaseModel):
     mensaje: str
     leida: bool
     creado_en: datetime
+
+
+class DistribucionItem(BaseModel):
+    valor: str
+    total: int
+
+
+class DistribucionCategoriaItem(BaseModel):
+    categoria_id: int | None
+    nombre: str
+    total: int
+
+
+class ResumenDashboard(BaseModel):
+    generado_en: datetime
+    creados_hoy: int
+    resueltos_hoy: int
+    abiertos: int
+    sin_asignar: int
+    sla_en_riesgo: int
+    sla_vencido: int
+    sla_pausado: int
+    por_estado: list[DistribucionItem]
+    por_prioridad: list[DistribucionItem]
+    por_canal: list[DistribucionItem]
+    por_categoria: list[DistribucionCategoriaItem]
+
+
+class KpisReporte(BaseModel):
+    desde: date | None
+    hasta: date | None
+    tickets_creados: int
+    tickets_resueltos: int
+    cumplimiento_sla_pct: float | None
+    mtta_minutos: float | None
+    mttr_horas: float | None
+    fcr_pct: float | None

@@ -437,6 +437,55 @@
       align-items: center;
       gap: 10px;
     }
+
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .kpi {
+      background: #f7f9fb;
+      border: 1px solid #e4e7eb;
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+
+    .kpi strong {
+      display: block;
+      font-size: 1.4rem;
+    }
+
+    .kpi span {
+      color: #616e7c;
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .03em;
+    }
+
+    ul.distribucion {
+      list-style: none;
+      margin: 8px 0 0;
+      padding: 0;
+      font-size: .85rem;
+    }
+
+    ul.distribucion li {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 4px 0;
+      border-bottom: 1px dashed #e4e7eb;
+    }
+
+    ul.distribucion li:last-child {
+      border-bottom: none;
+    }
+
+    .filtros label {
+      font-size: .8rem;
+    }
   </style>
 </head>
 
@@ -448,6 +497,7 @@
     </div>
     <div id="sesion" hidden>
       <button id="btnConocimiento" class="terciario" hidden onclick="abrirConocimiento()">Base de Conocimiento</button>
+      <button id="btnReportes" class="terciario" hidden onclick="abrirReportes()">Reportes</button>
       <button id="btnConfig" class="terciario" hidden onclick="abrirConfiguracion()">Configuración</button>
       <span id="usuarioInfo"></span>
       <button id="btnSalir" class="salir">Cerrar sesión</button>
@@ -642,6 +692,47 @@
     </div>
   </div>
 
+  <!-- Reportes y KPIs -->
+  <div id="modalReportes" class="modal" hidden>
+    <div class="modal-caja">
+      <div class="modal-cabecera">
+        <div>
+          <h2>Reportes y KPIs</h2>
+          <div class="desc">Resumen operativo en tiempo real y exportación CSV</div>
+        </div>
+        <button type="button" class="terciario" onclick="cerrarReportes()">Cerrar</button>
+      </div>
+      <div id="reportesMensaje" class="mensaje" hidden></div>
+      <div id="resumenReportes"></div>
+
+      <div class="detalle-bloque">
+        <h3>KPIs por periodo</h3>
+        <div class="filtros">
+          <label>Desde
+            <input id="reporteDesde" type="date">
+          </label>
+          <label>Hasta
+            <input id="reporteHasta" type="date">
+          </label>
+          <label>Grupo
+            <select id="reporteGrupo"><option value="">Todos los grupos</option></select>
+          </label>
+          <label>Técnico
+            <select id="reporteAgente"><option value="">Todos los técnicos</option></select>
+          </label>
+          <button type="button" onclick="cargarReportes()">Actualizar</button>
+          <button type="button" class="secundario" onclick="exportarIncidenciasCSV()">Exportar CSV</button>
+        </div>
+        <div id="kpisReportes"></div>
+      </div>
+
+      <div class="detalle-bloque">
+        <h3>Distribución de tickets abiertos</h3>
+        <div id="distribucionReportes"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Configuración (solo administradores) -->
   <div id="modalConfig" class="modal" hidden>
     <div class="modal-caja">
@@ -801,6 +892,10 @@
       return usuario && usuario.rol === "administrador";
     }
 
+    function esSupervision() {
+      return usuario && (usuario.rol === "supervisor" || usuario.rol === "administrador");
+    }
+
     function nombreCategoria(id) {
       const categoria = categorias.find((c) => c.id === id);
       return categoria ? categoria.nombre : "Sin categoría";
@@ -892,7 +987,9 @@
       articuloActual = null;
       articuloEditandoId = null;
       $("btnConocimiento").hidden = true;
+      $("btnReportes").hidden = true;
       cerrarConocimiento();
+      cerrarReportes();
       sessionStorage.removeItem("token");
       sessionStorage.removeItem("usuario");
       cerrarDetalle();
@@ -914,6 +1011,7 @@
       $("vistaApp").hidden = false;
       $("sesion").hidden = false;
       $("btnConocimiento").hidden = false;
+      $("btnReportes").hidden = !esSupervision();
       $("btnConfig").hidden = !esAdmin();
       ocultarSugerencias();
       $("usuarioInfo").textContent = `${usuario.nombre_completo} (${usuario.rol})`;
@@ -1400,6 +1498,148 @@
       if (!caja) return;
       caja.hidden = true;
       caja.innerHTML = "";
+    }
+
+    // ---------- Reportes y KPIs ----------
+    function mensajeReportes(texto, ok = false) {
+      const caja = $("reportesMensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    function ocultarMensajeReportes() {
+      $("reportesMensaje").hidden = true;
+    }
+
+    async function abrirReportes() {
+      if (!esSupervision()) return;
+      $("modalReportes").hidden = false;
+      ocultarMensajeReportes();
+      try {
+        if (!tecnicos) await cargarTecnicos();
+        pintarFiltrosReporte();
+        await cargarReportes();
+      } catch (error) {
+        if (error.message !== "401") mensajeReportes(error.message);
+      }
+    }
+
+    function cerrarReportes() {
+      if ($("modalReportes")) $("modalReportes").hidden = true;
+    }
+
+    function pintarFiltrosReporte() {
+      $("reporteGrupo").innerHTML = opcionesGrupos($("reporteGrupo").value, true);
+      const seleccionado = $("reporteAgente").value;
+      $("reporteAgente").innerHTML =
+        '<option value="">Todos los técnicos</option>' +
+        (tecnicos || []).map((t) =>
+          `<option value="${t.id}" ${String(t.id) === String(seleccionado) ? "selected" : ""}>${esc(t.nombre_completo)}</option>`
+        ).join("");
+    }
+
+    function paramsReporte() {
+      const params = new URLSearchParams();
+      if ($("reporteDesde").value) params.set("desde", $("reporteDesde").value);
+      if ($("reporteHasta").value) params.set("hasta", $("reporteHasta").value);
+      if ($("reporteGrupo").value) params.set("grupo_asignado_id", $("reporteGrupo").value);
+      if ($("reporteAgente").value) params.set("agente_asignado_id", $("reporteAgente").value);
+      return params;
+    }
+
+    async function cargarReportes() {
+      if (!esSupervision()) return;
+      try {
+        const [resumen, kpis] = await Promise.all([
+          api("/reportes/resumen"),
+          api(`/reportes/kpis?${paramsReporte()}`)
+        ]);
+        pintarResumenReportes(resumen);
+        pintarKpis(kpis);
+        pintarDistribuciones(resumen);
+        ocultarMensajeReportes();
+      } catch (error) {
+        if (error.message !== "401") mensajeReportes(error.message);
+      }
+    }
+
+    function tarjetaKpi(etiqueta, valor) {
+      return `<div class="kpi"><strong>${esc(valor)}</strong><span>${esc(etiqueta)}</span></div>`;
+    }
+
+    function pintarResumenReportes(resumen) {
+      $("resumenReportes").innerHTML = `<div class="kpis">
+        ${tarjetaKpi("Creados hoy", resumen.creados_hoy)}
+        ${tarjetaKpi("Resueltos hoy", resumen.resueltos_hoy)}
+        ${tarjetaKpi("Abiertos", resumen.abiertos)}
+        ${tarjetaKpi("Sin asignar", resumen.sin_asignar)}
+        ${tarjetaKpi("SLA en riesgo", resumen.sla_en_riesgo)}
+        ${tarjetaKpi("SLA vencido", resumen.sla_vencido)}
+        ${tarjetaKpi("SLA pausado", resumen.sla_pausado)}
+      </div>`;
+    }
+
+    function pintarKpis(kpis) {
+      const valor = (dato, sufijo) =>
+        dato === null || dato === undefined ? "—" : `${dato}${sufijo || ""}`;
+      $("kpisReportes").innerHTML = `<div class="kpis">
+        ${tarjetaKpi("Tickets creados", kpis.tickets_creados)}
+        ${tarjetaKpi("Tickets resueltos", kpis.tickets_resueltos)}
+        ${tarjetaKpi("Cumplimiento SLA", valor(kpis.cumplimiento_sla_pct, " %"))}
+        ${tarjetaKpi("MTTA", valor(kpis.mtta_minutos, " min"))}
+        ${tarjetaKpi("MTTR", valor(kpis.mttr_horas, " h"))}
+        ${tarjetaKpi("FCR", valor(kpis.fcr_pct, " %"))}
+      </div>`;
+    }
+
+    function bloqueDistribucion(titulo, items, etiqueta) {
+      const filas = (items || []).map((item) => `
+        <li><span>${esc(etiqueta ? etiqueta(item) : item.valor)}</span><span>${item.total}</span></li>
+      `).join("");
+      return `<div>
+        <strong>${esc(titulo)}</strong>
+        ${filas ? `<ul class="distribucion">${filas}</ul>` : '<p class="desc">Sin datos</p>'}
+      </div>`;
+    }
+
+    function pintarDistribuciones(resumen) {
+      $("distribucionReportes").innerHTML = `<div class="fila">
+        ${bloqueDistribucion("Por estado", resumen.por_estado)}
+        ${bloqueDistribucion("Por prioridad", resumen.por_prioridad)}
+        ${bloqueDistribucion("Por canal", resumen.por_canal)}
+        ${bloqueDistribucion("Por categoría", resumen.por_categoria, (item) => item.nombre)}
+      </div>`;
+    }
+
+    async function exportarIncidenciasCSV() {
+      const cabeceras = {};
+      if (token) cabeceras.Authorization = "Bearer " + token;
+      try {
+        const respuesta = await fetch(`/reportes/incidencias.csv?${paramsReporte()}`, {
+          headers: cabeceras
+        });
+        if (respuesta.status === 401 && token) {
+          cerrarSesion("Tu sesión ha caducado. Entra de nuevo.");
+          return;
+        }
+        if (!respuesta.ok) {
+          let datos = null;
+          try { datos = await respuesta.json(); } catch (e) { }
+          throw new Error(textoError(datos));
+        }
+        const blob = await respuesta.blob();
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement("a");
+        enlace.href = url;
+        enlace.download = "incidencias.csv";
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        if (error.message !== "401") mensajeReportes(error.message);
+      }
     }
 
     // ---------- Detalle del ticket ----------

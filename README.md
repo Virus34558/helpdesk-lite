@@ -50,6 +50,11 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Deflexión de incidencias:** mientras se escribe el título de un ticket se sugieren hasta 5 artículos públicos (con *debounce*) y se pueden abrir en el momento.
 - Si no se indica resumen, se genera automáticamente a partir del contenido.
 
+### Reportes y KPIs
+- **Resumen en tiempo real** (solo supervisor/administrador): tickets creados y resueltos hoy, abiertos, sin asignar, SLA en riesgo/vencido/pausado y distribución por estado, prioridad, canal y categoría.
+- **KPIs históricos** filtrables por rango de fechas, grupo, técnico, solicitante y departamento: % de cumplimiento de SLA, **MTTA** (primera asignación), **MTTR** (resolución) y **FCR** (resuelto con una sola interacción pública del técnico).
+- **Exportación a CSV** del listado filtrado (con BOM UTF-8 para Excel), incluyendo datos de ticket, clasificación, responsables, fechas y estado del SLA.
+
 ### Usuarios y control de acceso (RBAC)
 - **4 roles:** `solicitante` (usuario final), `agente`, `supervisor` y `administrador`.
 - Contraseñas con **bcrypt** y sesiones con **JWT** (Bearer, HS256) con caducidad.
@@ -73,7 +78,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 186 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización y base de conocimiento)
+- **pytest**: 191 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento y reportes)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -136,6 +141,14 @@ Las categorías y los grupos con tickets, subcategorías o reglas asociadas no s
 | Crear artículo | `POST /conocimiento` | `agente`, `supervisor`, `administrador` |
 | Actualizar artículo | `PATCH /conocimiento/{id}` | `agente`, `supervisor`, `administrador` |
 | Eliminar artículo | `DELETE /conocimiento/{id}` | `administrador` |
+
+### Reportes (`/reportes`)
+
+| Acción | Método y ruta | Acceso |
+|---|---|---|
+| Resumen en tiempo real | `GET /reportes/resumen` | `supervisor`, `administrador` |
+| KPIs por periodo y filtros (`desde`, `hasta`, `grupo_asignado_id`, `agente_asignado_id`, `solicitante_id`, `departamento`) | `GET /reportes/kpis?desde=2026-01-01&hasta=2026-12-31` | `supervisor`, `administrador` |
+| Exportar CSV del listado filtrado (`estado`, `prioridad`, `categoria_id`, ...) | `GET /reportes/incidencias.csv?estado=Resuelto` | `supervisor`, `administrador` |
 
 ### Notificaciones (`/notificaciones`)
 
@@ -208,7 +221,8 @@ helpdesk-lite/
 |   |   |-- conocimiento.py  # Base de conocimiento y sugerencias
 |   |   |-- grupos.py        # Grupos de soporte y sus miembros
 |   |   |-- notificaciones.py # Endpoints de notificaciones
-|   |   `-- reglas.py        # CRUD de reglas de automatización
+|   |   |-- reglas.py        # CRUD de reglas de automatización
+|   |   `-- reportes.py      # Resumen, KPIs y exportación CSV
 |   |-- auditoria.py     # Helper de registro inmutable de auditoría
 |   |-- automatizacion.py # Motor de reglas y auto-asignación
 |   |-- correo.py        # Envío de correos por SMTP (con modo simulado)
@@ -237,6 +251,7 @@ helpdesk-lite/
 |   |-- test_incidencias.py        # Tests de tickets, estados y asignación
 |   |-- test_privacidad.py         # Tests de privacidad de datos y autoría
 |   |-- test_reglas.py             # Tests de matriz ITIL y máquina de estados
+|   |-- test_reportes.py           # Tests de dashboard, KPIs y exportación CSV
 |   |-- test_seguridad_tickets.py  # Tests de permisos y restricciones de seguridad
 |   `-- test_sla.py                # Tests de SLA, calendario laboral y pausas
 |-- docs/                # Capturas del README
@@ -263,7 +278,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Adjuntos en los tickets (límite de tamaño, extensiones bloqueadas, adjuntos internos) y notificaciones por email
 - [x] Categorías jerárquicas, grupos de soporte y motor de reglas con auto-asignación (round-robin y carga)
 - [x] Base de Conocimiento (artículos públicos/internos, búsqueda y sugerencias)
-- [ ] Dashboard con KPIs y exportación a CSV
+- [x] Dashboard con KPIs (SLA, MTTA, MTTR, FCR) y exportación a CSV
 - [ ] Migraciones con Alembic
 - [ ] Paginación y búsqueda de texto completo
 
