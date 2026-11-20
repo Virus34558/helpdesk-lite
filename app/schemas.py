@@ -503,3 +503,7 @@ class ObservadorRespuesta(BaseModel):
     id: int
     email: str
     creado_en: datetime
+
+
+class FusionCrear(BaseModel):
+    nota: str | None = Field(default=None, max_length=1000)

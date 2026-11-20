@@ -959,6 +959,112 @@ def valorar_incidencia(
     }
 
 
+@app.post(
+    "/incidencias/{principal}/fusionar/{secundario}",
+    response_model=schemas.IncidenciaRespuesta,
+    summary="Fusionar un ticket duplicado en otro (staff)",
+)
+def fusionar_incidencias(
+    principal: str,
+    secundario: str,
+    datos: schemas.FusionCrear | None = None,
+    db: Session = Depends(get_db),
+    _gestor: models.Usuario = Depends(solo_gestores),
+):
+    destino = _buscar_por_id_o_codigo(db, principal)
+    origen = _buscar_por_id_o_codigo(db, secundario)
+
+    if destino.id == origen.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No se puede fusionar una incidencia consigo misma",
+        )
+    for incidencia in (destino, origen):
+        if incidencia.estado in ("Cerrado", "Cancelado"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"La incidencia {incidencia.id_legible} está "
+                    f"{incidencia.estado} y no se puede fusionar"
+                ),
+            )
+
+    # El hilo del secundario se copia cronológicamente en el principal
+    comentarios = (
+        db.query(models.Comentario)
+        .filter(models.Comentario.incidencia_id == origen.id)
+        .order_by(models.Comentario.creado_en.asc())
+    )
+    for comentario in comentarios:
+        db.add(
+            models.Comentario(
+                incidencia_id=destino.id,
+                autor_id=comentario.autor_id,
+                contenido=comentario.contenido,
+                es_interno=comentario.es_interno,
+                creado_en=comentario.creado_en,
+            )
+        )
+
+    # Los adjuntos se trasladan (el nombre almacenado es único en la base)
+    for adjunto in (
+        db.query(models.Adjunto)
+        .filter(models.Adjunto.incidencia_id == origen.id)
+        .all()
+    ):
+        adjunto.incidencia_id = destino.id
+
+    # Los observadores se heredan sin duplicar correos
+    ya_en_destino = {
+        observador.email
+        for observador in db.query(models.Observador)
+        .filter(models.Observador.incidencia_id == destino.id)
+        .all()
+    }
+    for observador in (
+        db.query(models.Observador)
+        .filter(models.Observador.incidencia_id == origen.id)
+        .all()
+    ):
+        if observador.email in ya_en_destino:
+            db.delete(observador)
+        else:
+            observador.incidencia_id = destino.id
+
+    # El secundario se cierra con la nota de fusión
+    estado_anterior = origen.estado
+    origen.estado = "Cerrado"
+    nota = f"Fusionado en {destino.id_legible}"
+    if datos and datos.nota:
+        nota = f"{nota}. {datos.nota.strip()}"
+    origen.nota_resolucion = nota
+    if origen.resuelta_en is None:
+        origen.resuelta_en = datetime.now()
+    sla.finalizar_sla_resolucion(origen)
+
+    auditoria.registrar_evento(
+        db,
+        destino.id,
+        _gestor.id,
+        accion="fusion",
+        campo="fusionado_con",
+        valor_nuevo=origen.id_legible,
+    )
+    auditoria.registrar_evento(
+        db,
+        origen.id,
+        _gestor.id,
+        accion="fusion",
+        campo="fusionado_en",
+        valor_anterior=estado_anterior,
+        valor_nuevo=destino.id_legible,
+    )
+
+    db.commit()
+    db.refresh(destino)
+    return destino
+
+
 @app.get(
     "/incidencias/{identificador}/observadores",
     response_model=list[schemas.ObservadorRespuesta],

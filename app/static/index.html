@@ -1749,16 +1749,17 @@
 
     async function cargarDetalle() {
       if (detalleId === null) return;
-      const [ticket, comentarios, historial, adjuntos] = await Promise.all([
+      const [ticket, comentarios, historial, adjuntos, observadores] = await Promise.all([
         api(`${API}/${detalleId}`),
         api(`${API}/${detalleId}/comentarios`),
         api(`${API}/${detalleId}/historial`),
-        api(`${API}/${detalleId}/adjuntos`)
+        api(`${API}/${detalleId}/adjuntos`),
+        api(`${API}/${detalleId}/observadores`)
       ]);
-      pintarDetalle(ticket, comentarios, historial, adjuntos);
+      pintarDetalle(ticket, comentarios, historial, adjuntos, observadores);
     }
 
-    function pintarDetalle(ticket, comentarios, historial, adjuntos) {
+    function pintarDetalle(ticket, comentarios, historial, adjuntos, observadores = []) {
       adjuntosDetalle = adjuntos;
       $("detalleTitulo").textContent = ticket.titulo;
       $("detalleCodigo").textContent = `${ticket.id_legible} · #${ticket.id}`;
@@ -1903,6 +1904,42 @@
            </div>`
         : "";
 
+      const listaObservadores = observadores.length
+        ? observadores
+            .map((o) => `
+              <div class="adjunto">
+                <div class="adjunto-info"><strong>${esc(o.email)}</strong></div>
+                ${editable ? `<button type="button" class="terciario" onclick="quitarObservador(${o.id})">Quitar</button>` : ""}
+              </div>`)
+            .join("")
+        : '<p class="vacio">Nadie en copia</p>';
+
+      const bloqueObservadores = `
+        <div class="detalle-bloque">
+          <h3>En copia</h3>
+          ${listaObservadores}
+          ${
+            editable
+              ? `<div class="asignacion" style="margin-top:10px">
+                   <input id="nuevoObservador" type="email" placeholder="correo@empresa.com">
+                   <button type="button" onclick="añadirObservador()">Añadir a la copia</button>
+                 </div>`
+              : ""
+          }
+        </div>`;
+
+      const bloqueFusion =
+        gestor && editable
+          ? `<div class="detalle-bloque">
+               <h3>Fusionar duplicados</h3>
+               <p class="desc">El ticket que indiques se cerrará y su conversación y adjuntos pasarán a este.</p>
+               <div class="asignacion">
+                 <input id="ticketDuplicado" placeholder="INC-2026-000123">
+                 <button type="button" onclick="fusionarEn()">Fusionar aquí</button>
+               </div>
+             </div>`
+          : "";
+
       $("detalleContenido").innerHTML = `
         <div class="detalle-meta">
           <div><strong>Estado</strong><span class="etiqueta estado">${esc(ticket.estado)}</span></div>
@@ -1926,6 +1963,8 @@
           ${subidaAdjunto}
         </div>
         ${asignacion}
+        ${bloqueObservadores}
+        ${bloqueFusion}
         <div class="detalle-bloque">
           <h3>Conversación</h3>
           ${comentariosHtml}
@@ -1950,6 +1989,51 @@
         });
         mensajeDetalle("Clasificación actualizada", true);
         await cargarCatalogos();
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function añadirObservador() {
+      const email = $("nuevoObservador").value.trim();
+      if (!email) return;
+      try {
+        await api(`${API}/${detalleId}/observadores`, {
+          method: "POST",
+          body: JSON.stringify({ email })
+        });
+        mensajeDetalle("Añadido a la copia", true);
+        await cargarDetalle();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function quitarObservador(observadorId) {
+      try {
+        await api(`${API}/${detalleId}/observadores/${observadorId}`, {
+          method: "DELETE"
+        });
+        await cargarDetalle();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function fusionarEn() {
+      const codigo = $("ticketDuplicado").value.trim();
+      if (!codigo) return;
+      if (!confirm(`Se cerrará ${codigo} y su contenido pasará a este ticket. ¿Continuar?`)) {
+        return;
+      }
+      try {
+        await api(`${API}/${detalleId}/fusionar/${encodeURIComponent(codigo)}`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+        mensajeDetalle("Ticket fusionado", true);
         await cargarDetalle();
         await cargar();
       } catch (error) {

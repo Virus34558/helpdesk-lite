@@ -28,6 +28,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Observadores en copia (CC):** cualquier persona con acceso al ticket puede añadir correos que reciben las respuestas públicas y la resolución.
 - **Categorías jerárquicas y grupos de soporte:** clasificación por categoría/subcategoría y asignación a equipos de trabajo con sus miembros.
 - **Automatización (M3):** motor de reglas con condiciones `AND`/`OR` y acciones de grupo y auto-asignación `round-robin` o por carga (menos tickets abiertos).
+- **Fusión de duplicados:** un agente cierra un ticket repetido dentro de otro; su conversación y adjuntos pasan al principal, los observadores se heredan sin duplicar y ambos quedan registrados en la auditoría.
 - **Reactivación automática (ITIL):** cuando un solicitante responde a una incidencia en estado `Pendiente de usuario`, esta pasa automáticamente a `En progreso`.
 - **Historial de auditoría inmutable:** línea de tiempo inalterable que registra automáticamente quién hizo qué y cuándo (creación, transiciones de estado, cambios de prioridad, asignación de técnicos, resolución y comentarios).
 - **Vista de detalle en la web:** al pulsar `Ver` se abre el ticket completo con sus datos, SLA, conversación (respuestas públicas y notas internas), asignación de técnico e historial de auditoría.
@@ -79,7 +80,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 251 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
+- **pytest**: 259 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -114,6 +115,7 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Valorar la resolución (CSAT 1-5) | `POST /incidencias/{id_o_codigo}/csat` | Solicitante dueño, con el ticket resuelto |
 | Añadir comentario (público o nota interna) | `POST /incidencias/{id_o_codigo}/comentarios` | Autenticado (nota interna solo técnicos) |
 | Listar / añadir / quitar observadores en copia | `GET`, `POST /incidencias/{id_o_codigo}/observadores`, `DELETE .../observadores/{id}` | Autenticado (el solicitante, solo en las suyas) |
+| Fusionar un duplicado en otro ticket | `POST /incidencias/{id_o_codigo}/fusionar/{id_o_codigo_duplicado}` | `agente`, `supervisor`, `administrador` |
 | Listar hilo de comentarios | `GET /incidencias/{id_o_codigo}/comentarios` | Autenticado (solicitante no ve notas internas) |
 | Consultar historial de auditoría | `GET /incidencias/{id_o_codigo}/historial` | Autenticado (solicitante no ve eventos internos) |
 | Listar adjuntos | `GET /incidencias/{id_o_codigo}/adjuntos` | Autenticado (solicitante no ve adjuntos internos) |
@@ -328,6 +330,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Dashboard con KPIs (SLA, MTTA, MTTR, FCR) y exportación a CSV
 - [x] Migraciones con Alembic
 - [x] Paginación (`limite`/`desplazamiento` con `X-Total-Count`) y búsqueda por texto en título, descripción y código legible
+- [x] Fusión de tickets duplicados con herencia de hilo, adjuntos y observadores
 - [x] Observadores en copia (CC) por ticket, notificados en cada respuesta pública
 - [x] Ingesta de tickets por correo vía webhook (conector IMAP/Graph/SES), con antiduplicados y autorrespuestas ignoradas
 - [x] Encuesta de satisfacción (CSAT) y su KPI en los reportes
