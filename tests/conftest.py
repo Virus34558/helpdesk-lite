@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app import auth, models
+from app import auth, limites, models
 from app.database import Base, get_db
 from app.main import app
 
@@ -43,8 +43,10 @@ def client(motor, monkeypatch, tmp_path):
             db.close()
 
     app.dependency_overrides[get_db] = get_db_de_prueba
+    limites.reiniciar()
     with TestClient(app) as cliente:
         yield cliente
+    limites.reiniciar()
     app.dependency_overrides.clear()
 
 

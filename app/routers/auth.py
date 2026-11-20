@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .. import auth, models, schemas
+from .. import auth, limites, models, schemas
 from ..database import get_db
 
 router = APIRouter(prefix="/auth", tags=["Autenticación"])
@@ -21,7 +21,9 @@ class CambioRol(BaseModel):
     summary="Registrar un nuevo usuario",
 )
 def registrar_usuario(
-    datos: schemas.UsuarioRegistro, db: Session = Depends(get_db)
+    datos: schemas.UsuarioRegistro,
+    db: Session = Depends(get_db),
+    _limite: None = Depends(limites.limitar_auth),
 ):
     email = datos.email.lower().strip()
 
@@ -70,7 +72,9 @@ def registrar_usuario(
     summary="Iniciar sesión y obtener token JWT",
 )
 def iniciar_sesion(
-    credenciales: schemas.UsuarioLogin, db: Session = Depends(get_db)
+    credenciales: schemas.UsuarioLogin,
+    db: Session = Depends(get_db),
+    _limite: None = Depends(limites.limitar_auth),
 ):
     usuario = (
         db.query(models.Usuario)
