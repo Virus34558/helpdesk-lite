@@ -98,7 +98,7 @@ def salud(db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={"estado": "error", "base_datos": "no disponible"},
-        )
+        ) from None
     return {"estado": "ok", "base_datos": "ok"}
 
 

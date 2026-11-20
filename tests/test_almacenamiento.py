@@ -1,7 +1,6 @@
 """Almacenamiento de adjuntos: disco local y bucket S3 compatible."""
 
 import io
-from pathlib import Path
 
 import pytest
 

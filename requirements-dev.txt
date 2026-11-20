@@ -1,3 +1,6 @@
 -r requirements.txt
 pytest
 httpx
+ruff
+pytest-cov
+pip-audit

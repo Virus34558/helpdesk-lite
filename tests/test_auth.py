@@ -94,7 +94,7 @@ def test_perfil_me_sin_token_devuelve_401(client):
 
 def test_control_acceso_rbac_usuarios_listado(client):
     # Primer usuario: Admin
-    admin_res = registrar(client, email="admin@corp.com", password="adminPass").json()
+    registrar(client, email="admin@corp.com", password="adminPass")
     token_admin = login(client, email="admin@corp.com", password="adminPass").json()["access_token"]
 
     # Segundo usuario: Solicitante

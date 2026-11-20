@@ -1,0 +1,11 @@
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+
+[tool.ruff.lint]
+# B008 se ignora a propósito: `Depends(...)` en los valores por defecto es el
+# patrón estándar de FastAPI, no un error.
+select = ["E", "F", "W", "I", "UP", "B"]
+# UP042: los enums heredan de str+Enum a propósito; migrarlos a StrEnum es un
+# refactor aparte que toca schemas y serialización.
+ignore = ["B008", "E501", "UP042"]

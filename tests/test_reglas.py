@@ -1,6 +1,6 @@
 import pytest
 
-from app.reglas import calcular_prioridad, transicion_permitida, generar_id_legible
+from app.reglas import calcular_prioridad, generar_id_legible, transicion_permitida
 
 MATRIZ = [
     ("Alto", "Crítica", "P1 - Crítica"),

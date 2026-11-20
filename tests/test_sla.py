@@ -3,8 +3,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from app import sla, models, auth, reglas, sla_vigilancia
-from app.database import Base
+from app import models, reglas, sla, sla_vigilancia
 
 
 @pytest.fixture()

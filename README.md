@@ -240,6 +240,10 @@ python -m pytest -v
 
 Los tests usan una base de datos temporal en memoria, sin tocar los datos locales.
 
+El mismo trabajo corre en GitHub Actions: `ruff check app tests`, la suite con
+umbral de cobertura del 85 % (`--cov-fail-under=85`) y `pip-audit` sobre las
+dependencias de producción.
+
 ## Estructura
 
 ```
