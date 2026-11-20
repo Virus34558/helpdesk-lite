@@ -14,11 +14,13 @@ from fastapi import (
     File,
     Form,
     HTTPException,
+    Query,
+    Response,
     UploadFile,
     status,
 )
 from fastapi.responses import FileResponse, RedirectResponse
-from sqlalchemy import and_, or_, text
+from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
 from . import (
@@ -431,6 +433,7 @@ def crear_incidencia(
 
 @app.get("/incidencias", response_model=list[schemas.IncidenciaRespuesta])
 def listar_incidencias(
+    response: Response,
     estado: schemas.Estado | None = None,
     prioridad: schemas.Prioridad | None = None,
     tipo: schemas.TipoTicket | None = None,
@@ -442,6 +445,9 @@ def listar_incidencias(
     sin_grupo: bool | None = None,
     sla_vencido: bool | None = None,
     sla_en_riesgo: bool | None = None,
+    q: str | None = None,
+    limite: int = Query(50, ge=1, le=200),
+    desplazamiento: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     usuario: models.Usuario = Depends(auth.get_current_user),
 ):
@@ -492,13 +498,27 @@ def listar_incidencias(
             )
         )
 
-    resultados = consulta.order_by(models.Incidencia.id.desc()).all()
+    if q and q.strip():
+        patron = f"%{q.strip().lower()}%"
+        consulta = consulta.filter(
+            or_(
+                func.lower(models.Incidencia.titulo).like(patron),
+                func.lower(models.Incidencia.descripcion).like(patron),
+                func.lower(models.Incidencia.id_legible).like(patron),
+            )
+        )
 
-    # sla_en_riesgo: filtro en memoria (cálculo temporal dinámico)
+    consulta = consulta.order_by(models.Incidencia.id.desc())
+
+    # sla_en_riesgo se calcula en memoria: depende del calendario laboral y los
+    # porcentajes, imposible de expresar en SQL. Se filtra antes de paginar.
     if sla_en_riesgo is True:
-        resultados = [t for t in resultados if t.estado_sla == "en_riesgo"]
+        filtrados = [t for t in consulta.all() if t.estado_sla == "en_riesgo"]
+        response.headers["X-Total-Count"] = str(len(filtrados))
+        return filtrados[desplazamiento : desplazamiento + limite]
 
-    return resultados
+    response.headers["X-Total-Count"] = str(consulta.count())
+    return consulta.offset(desplazamiento).limit(limite).all()
 
 
 @app.post(

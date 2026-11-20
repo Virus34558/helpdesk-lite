@@ -78,7 +78,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 194 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
+- **pytest**: 219 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -104,6 +104,7 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 |---|---|---|
 | Crear incidencia / ticket | `POST /incidencias` | Autenticado |
 | Listar (con filtros: estado, prioridad, tipo, categoría, grupo, agente, sin asignar, sin grupo, SLA) | `GET /incidencias?estado=Nuevo&prioridad=P1 - Crítica&tipo=Incidencia&categoria_id=1&grupo_asignado_id=2&sin_asignar=true&sin_grupo=true&sla_vencido=true` | Autenticado (el solicitante solo ve las suyas) |
+| Buscar y paginar | `GET /incidencias?q=impresora&limite=25&desplazamiento=0` — `q` busca en título, descripción y código legible; el total llega en `X-Total-Count` | Autenticado |
 | Consultar una (por ID numérico o código legible) | `GET /incidencias/{id_o_codigo}` | Autenticado (idem) |
 | Asignar o desasignar técnico | `POST /incidencias/{id_o_codigo}/asignar` | `agente`, `supervisor`, `administrador` |
 | Actualizar estado, tipo, impacto, urgencia, categoría o grupo | `PATCH /incidencias/{id_o_codigo}` | `agente`, `supervisor`, `administrador` |
@@ -240,10 +241,6 @@ python -m pytest -v
 
 Los tests usan una base de datos temporal en memoria, sin tocar los datos locales.
 
-El mismo trabajo corre en GitHub Actions: `ruff check app tests`, la suite con
-umbral de cobertura del 85 % (`--cov-fail-under=85`) y `pip-audit` sobre las
-dependencias de producción.
-
 ## Estructura
 
 ```
@@ -316,7 +313,8 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Base de Conocimiento (artículos públicos/internos, búsqueda y sugerencias)
 - [x] Dashboard con KPIs (SLA, MTTA, MTTR, FCR) y exportación a CSV
 - [x] Migraciones con Alembic
-- [ ] Paginación y búsqueda de texto completo
+- [x] Paginación (`limite`/`desplazamiento` con `X-Total-Count`) y búsqueda por texto en título, descripción y código legible
+- [ ] Búsqueda full-text indexada (PostgreSQL `tsvector` / Meilisearch)
 
 ## Autor
 

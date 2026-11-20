@@ -136,6 +136,20 @@
       overflow-x: auto;
     }
 
+    .paginacion {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 12px;
+      font-size: .85rem;
+      color: var(--texto-suave, #666);
+    }
+
+    .filtros input[type="search"] {
+      min-width: 260px;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -573,6 +587,12 @@
       <section>
         <h2>Incidencias</h2>
         <div class="filtros">
+          <input
+            id="filtroTexto"
+            type="search"
+            placeholder="Buscar por título, descripción o código"
+            aria-label="Buscar incidencias"
+          >
           <select id="filtroEstado">
             <option value="">Todos los estados</option>
             <option>Nuevo</option>
@@ -618,6 +638,11 @@
             </thead>
             <tbody id="tabla"></tbody>
           </table>
+        </div>
+        <div class="paginacion">
+          <button id="paginaAnterior" class="terciario" type="button">Anterior</button>
+          <span id="paginaInfo"></span>
+          <button id="paginaSiguiente" class="terciario" type="button">Siguiente</button>
         </div>
       </section>
     </div>
@@ -952,7 +977,7 @@
     }
 
     // Todas las llamadas a la API pasan por aqui: añade el token y gestiona errores
-    async function api(url, opciones = {}) {
+    async function api(url, opciones = {}, completo = false) {
       const cabeceras = {};
       if (!(opciones.body instanceof FormData)) {
         cabeceras["Content-Type"] = "application/json";
@@ -966,7 +991,7 @@
         throw new Error("401");
       }
       if (!respuesta.ok) throw new Error(textoError(datos));
-      return datos;
+      return completo ? { datos, respuesta } : datos;
     }
 
     // ---------- Sesión ----------
@@ -1112,6 +1137,10 @@
     });
 
     // ---------- Incidencias ----------
+    let pagina = 0;
+    const POR_PAGINA = 25;
+    let totalIncidencias = 0;
+
     async function cargar() {
       const params = new URLSearchParams();
       if ($("filtroEstado").value) params.set("estado", $("filtroEstado").value);
@@ -1120,12 +1149,38 @@
       if ($("filtroSla").value === "en_riesgo") params.set("sla_en_riesgo", "true");
       if ($("filtroCategoria").value) params.set("categoria_id", $("filtroCategoria").value);
       if ($("filtroGrupo").value) params.set("grupo_asignado_id", $("filtroGrupo").value);
+      const texto = $("filtroTexto").value.trim();
+      if (texto) params.set("q", texto);
+      params.set("limite", POR_PAGINA);
+      params.set("desplazamiento", pagina * POR_PAGINA);
       try {
-        const lista = await api(`${API}?${params}`);
-        pintar(lista);
+        const { datos, respuesta } = await api(`${API}?${params}`, {}, true);
+        totalIncidencias = Number(respuesta.headers.get("X-Total-Count") || 0);
+        pintar(datos);
+        pintarPaginacion();
       } catch (error) {
         if (error.message !== "401") mostrarMensaje(error.message);
       }
+    }
+
+    function pintarPaginacion() {
+      const desde = totalIncidencias === 0 ? 0 : pagina * POR_PAGINA + 1;
+      const hasta = Math.min((pagina + 1) * POR_PAGINA, totalIncidencias);
+      $("paginaInfo").textContent = `${desde}-${hasta} de ${totalIncidencias}`;
+      $("paginaAnterior").disabled = pagina === 0;
+      $("paginaSiguiente").disabled = hasta >= totalIncidencias;
+    }
+
+    function cambiarPagina(delta) {
+      const ultima = Math.max(0, Math.ceil(totalIncidencias / POR_PAGINA) - 1);
+      const destino = pagina + delta;
+      if (destino < 0 || destino > ultima) return;
+      pagina = destino;
+      cargar();
+    }
+
+    function reiniciarPagina() {
+      pagina = 0;
     }
 
     function pintar(lista) {
@@ -2242,11 +2297,25 @@
       }
     });
 
-    $("filtroEstado").addEventListener("change", cargar);
-    $("filtroPrioridad").addEventListener("change", cargar);
-    $("filtroSla").addEventListener("change", cargar);
-    $("filtroCategoria").addEventListener("change", cargar);
-    $("filtroGrupo").addEventListener("change", cargar);
+    ["filtroEstado", "filtroPrioridad", "filtroSla", "filtroCategoria", "filtroGrupo"]
+      .forEach((id) => {
+        $(id).addEventListener("change", () => {
+          reiniciarPagina();
+          cargar();
+        });
+      });
+
+    let temporizadorFiltro = null;
+    $("filtroTexto").addEventListener("input", () => {
+      clearTimeout(temporizadorFiltro);
+      temporizadorFiltro = setTimeout(() => {
+        reiniciarPagina();
+        cargar();
+      }, 350);
+    });
+
+    $("paginaAnterior").addEventListener("click", () => cambiarPagina(-1));
+    $("paginaSiguiente").addEventListener("click", () => cambiarPagina(1));
     $("titulo").addEventListener("input", programarSugerencias);
 
     // ---------- Arranque ----------
