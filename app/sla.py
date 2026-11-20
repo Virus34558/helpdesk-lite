@@ -1,12 +1,18 @@
-from datetime import datetime, timedelta
+import json
+import os
+from datetime import date, datetime, timedelta
+from functools import lru_cache
 
-# Tiempos objetivo según ITIL (Sección 4.1 de la especificación ERS)
+# Tiempos objetivo según ITIL (Sección 4.1 de la especificación ERS).
+# Se pueden sobrescribir por prioridad con la variable SLA_POLITICAS (JSON).
 OBJETIVOS_SLA = {
     "P1 - Crítica": {"frt_minutos": 15, "rt_horas": 4, "calendario": "continuo"},
     "P2 - Alta": {"frt_minutos": 60, "rt_horas": 8, "calendario": "laboral"},
     "P3 - Media": {"frt_minutos": 240, "rt_horas": 24, "calendario": "laboral"},
     "P4 - Baja": {"frt_minutos": 480, "rt_horas": 72, "calendario": "laboral"},
 }
+
+CLAVES_POLITICA = {"frt_minutos", "rt_horas", "calendario"}
 
 # Estados que congelan el temporizador de resolución ("Stop the Clock", RF-4.2)
 ESTADOS_PAUSA = {"Pendiente de usuario", "Pendiente de tercero"}
@@ -15,6 +21,53 @@ ESTADOS_PAUSA = {"Pendiente de usuario", "Pendiente de tercero"}
 DIAS_LABORALES = {0, 1, 2, 3, 4}
 HORA_INICIO_LABORAL = 9
 HORA_FIN_LABORAL = 18
+
+
+@lru_cache(maxsize=8)
+def _parsear_festivos(texto: str) -> frozenset[date]:
+    festivos = set()
+    for parte in texto.split(","):
+        parte = parte.strip()
+        if not parte:
+            continue
+        try:
+            festivos.add(date.fromisoformat(parte))
+        except ValueError:
+            continue
+    return frozenset(festivos)
+
+
+def festivos() -> frozenset[date]:
+    """Días festivos configurados en DIAS_FESTIVOS (lista ISO separada por comas)."""
+    return _parsear_festivos(os.getenv("DIAS_FESTIVOS", ""))
+
+
+@lru_cache(maxsize=8)
+def _parsear_politicas(texto: str) -> dict[str, dict]:
+    try:
+        datos = json.loads(texto) if texto.strip() else {}
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(datos, dict):
+        return {}
+
+    politicas: dict[str, dict] = {}
+    for prioridad, valores in datos.items():
+        if not isinstance(valores, dict):
+            continue
+        politicas[prioridad] = {
+            clave: valor for clave, valor in valores.items() if clave in CLAVES_POLITICA
+        }
+    return politicas
+
+
+def objetivo_de(prioridad: str) -> dict:
+    """Objetivos de SLA de una prioridad, con los cambios de SLA_POLITICAS aplicados."""
+    objetivo = dict(OBJETIVOS_SLA.get(prioridad, OBJETIVOS_SLA["P4 - Baja"]))
+    cambios = _parsear_politicas(os.getenv("SLA_POLITICAS", "")).get(prioridad)
+    if cambios:
+        objetivo.update(cambios)
+    return objetivo
 
 
 def _inicio_dia_habil(dt: datetime) -> datetime:
@@ -28,24 +81,34 @@ def _fin_dia_habil(dt: datetime) -> datetime:
 
 
 def es_hora_habil(dt: datetime) -> bool:
-    """Devuelve True si la fecha está dentro del horario laboral (L-V 09:00-18:00)."""
-    return dt.weekday() in DIAS_LABORALES and HORA_INICIO_LABORAL <= dt.hour < HORA_FIN_LABORAL
+    """True si la fecha es laborable (L-V, sin festivo) y está entre 09:00 y 18:00."""
+    if dt.weekday() not in DIAS_LABORALES:
+        return False
+    if dt.date() in festivos():
+        return False
+    return HORA_INICIO_LABORAL <= dt.hour < HORA_FIN_LABORAL
 
 
 def _siguiente_inicio_habil(dt: datetime) -> datetime:
     """Devuelve el siguiente inicio de horario laboral a partir de dt."""
     candidato = dt.replace(hour=HORA_INICIO_LABORAL, minute=0, second=0, microsecond=0)
     if not es_hora_habil(candidato):
-        # Si ya pasó las 18:00 o es fin de semana, avanzar al siguiente día hábil
+        # Si ya pasó las 18:00, es fin de semana o festivo, avanzar al siguiente día
         candidato += timedelta(days=1)
         candidato = candidato.replace(
             hour=HORA_INICIO_LABORAL, minute=0, second=0, microsecond=0
         )
-    while candidato.weekday() not in DIAS_LABORALES:
+    limite = 3660
+    while not es_hora_habil(candidato):
         candidato += timedelta(days=1)
         candidato = candidato.replace(
             hour=HORA_INICIO_LABORAL, minute=0, second=0, microsecond=0
         )
+        limite -= 1
+        if limite <= 0:
+            raise ValueError(
+                "No hay ningún día laborable en el calendario: revisa DIAS_FESTIVOS."
+            )
     return candidato
 
 
@@ -107,7 +170,7 @@ def horas_habiles_entre(inicio: datetime, fin: datetime) -> float:
 
 
 def _es_calendario_continuo(prioridad: str) -> bool:
-    objetivo = OBJETIVOS_SLA.get(prioridad, OBJETIVOS_SLA["P4 - Baja"])
+    objetivo = objetivo_de(prioridad)
     return objetivo.get("calendario") == "continuo"
 
 
@@ -128,7 +191,7 @@ def inicializar_sla(
     P1 usa calendario continuo (24×7). P2-P4 usan horario laboral (8×5).
     """
     ahora = fecha_base or datetime.now()
-    objetivo = OBJETIVOS_SLA.get(prioridad, OBJETIVOS_SLA["P4 - Baja"])
+    objetivo = objetivo_de(prioridad)
 
     limite_frt = _limite_primera_respuesta(prioridad, ahora, objetivo)
 
@@ -216,7 +279,7 @@ def recalcular_sla_por_cambio_prioridad(incidencia, nueva_prioridad: str):
     if incidencia.estado in ("Resuelto", "Cerrado", "Cancelado"):
         return
 
-    objetivo = OBJETIVOS_SLA.get(nueva_prioridad, OBJETIVOS_SLA["P4 - Baja"])
+    objetivo = objetivo_de(nueva_prioridad)
 
     # Si aún no hubo primera respuesta, el límite de FRT también se ajusta
     if incidencia.primera_respuesta_en is None:
@@ -248,7 +311,7 @@ def porcentaje_consumido_sla(
     if not incidencia.sla_limite_resolucion:
         return 0.0
 
-    objetivo = OBJETIVOS_SLA.get(incidencia.prioridad, OBJETIVOS_SLA["P4 - Baja"])
+    objetivo = objetivo_de(incidencia.prioridad)
 
     if _es_calendario_continuo(incidencia.prioridad):
         tiempo_total = (

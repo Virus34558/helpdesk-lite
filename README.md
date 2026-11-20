@@ -198,6 +198,8 @@ Las bases creadas antes de adoptar Alembic se detectan y se sellan automáticame
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Duración de la sesión | 1440 (24 horas) |
 | `SLA_SCHEDULER_ENABLED` | Activa la revisión automática de SLA en segundo plano | Desactivada |
 | `SLA_CHECK_INTERVAL_SECONDS` | Intervalo entre revisiones de SLA (mínimo 30 s) | 300 (5 minutos) |
+| `DIAS_FESTIVOS` | Festivos que no cuentan como días laborables (`2026-01-01,2026-01-06`) | Vacío |
+| `SLA_POLITICAS` | Sobrescribe objetivos por prioridad en JSON: `{"P4 - Baja": {"frt_minutos": 60, "rt_horas": 8}}` | Matriz ITIL por defecto |
 | `UPLOAD_DIR` | Carpeta donde se guardan los adjuntos (backend local) | `uploads` |
 | `STORAGE_BACKEND` | `local` (disco) o `s3` (bucket S3 compatible) | `local` |
 | `S3_BUCKET` | Bucket de adjuntos cuando `STORAGE_BACKEND=s3` | Obligatorio con S3 |
