@@ -272,6 +272,19 @@ class ArticuloConocimiento(Base):
     categoria: Mapped["Categoria | None"] = relationship()
 
 
+class Macro(Base):
+    """Plantilla de respuesta que los agentes reutilizan en el hilo."""
+
+    __tablename__ = "macros"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    texto: Mapped[str] = mapped_column(Text)
+    es_interna: Mapped[bool] = mapped_column(Boolean, default=False)
+    activa: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class Observador(Base):
     """Persona en copia (CC) que recibe las respuestas públicas del ticket."""
 

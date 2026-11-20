@@ -507,3 +507,27 @@ class ObservadorRespuesta(BaseModel):
 
 class FusionCrear(BaseModel):
     nota: str | None = Field(default=None, max_length=1000)
+
+
+class MacroCrear(BaseModel):
+    nombre: str = Field(min_length=2, max_length=120)
+    texto: str = Field(min_length=2, max_length=5000)
+    es_interna: bool = False
+    activa: bool = True
+
+
+class MacroActualizar(BaseModel):
+    nombre: str | None = Field(default=None, min_length=2, max_length=120)
+    texto: str | None = Field(default=None, min_length=2, max_length=5000)
+    es_interna: bool | None = None
+    activa: bool | None = None
+
+
+class MacroRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nombre: str
+    texto: str
+    es_interna: bool
+    activa: bool

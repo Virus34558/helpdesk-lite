@@ -877,6 +877,7 @@
     let adjuntosDetalle = [];
     let categorias = [];
     let grupos = [];
+    let macros = [];
     let reglasConfig = [];
     let articuloActual = null;
     let articuloEditandoId = null;
@@ -1053,10 +1054,11 @@
     async function cargarCatalogos() {
       try {
         const promesas = [api("/categorias")];
-        if (esGestor()) promesas.push(api("/grupos"));
-        const [listaCategorias, listaGrupos] = await Promise.all(promesas);
+        if (esGestor()) promesas.push(api("/grupos"), api("/macros"));
+        const [listaCategorias, listaGrupos, listaMacros] = await Promise.all(promesas);
         categorias = listaCategorias;
         grupos = listaGrupos || [];
+        macros = listaMacros || [];
         pintarSelectsCatalogo();
       } catch (error) {
         if (error.message !== "401") mostrarMensaje(error.message);
@@ -1830,6 +1832,21 @@
 
       const formulario = editable
         ? `<form onsubmit="enviarComentario(event)">
+             ${
+               gestor && macros.length
+                 ? `<label>Plantilla
+                      <select id="macroComentario" onchange="insertarPlantilla()">
+                        <option value="">Sin plantilla</option>
+                        ${macros
+                          .map(
+                            (m) =>
+                              `<option value="${m.id}">${esc(m.nombre)}${m.es_interna ? " (interna)" : ""}</option>`
+                          )
+                          .join("")}
+                      </select>
+                    </label>`
+                 : ""
+             }
              <label>Nuevo comentario
                <textarea id="nuevoComentario" rows="3" required maxlength="5000" placeholder="${gestor ? "Escribe una respuesta o una nota interna" : "Escribe tu respuesta"}"></textarea>
              </label>
@@ -1994,6 +2011,15 @@
       } catch (error) {
         if (error.message !== "401") mensajeDetalle(error.message);
       }
+    }
+
+    function insertarPlantilla() {
+      const macroId = Number($("macroComentario").value);
+      const macro = macros.find((m) => m.id === macroId);
+      if (!macro) return;
+      $("nuevoComentario").value = macro.texto;
+      if ($("comentarioInterno")) $("comentarioInterno").checked = macro.es_interna;
+      $("nuevoComentario").focus();
     }
 
     async function añadirObservador() {
