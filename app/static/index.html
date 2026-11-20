@@ -10,15 +10,29 @@
 </head>
 
 <body>
-  <header>
-    <div>
+  <header class="mando">
+    <div class="mando-marca">
       <h1>HelpDesk Lite</h1>
-      <p>Gestor de incidencias IT</p>
+      <p>Consola de soporte</p>
+    </div>
+    <div id="mandoCifras" class="mando-cifras" hidden>
+      <div class="cifra"><strong id="cifAbiertos">0</strong><span>abiertos</span></div>
+      <div class="cifra riesgo"><strong id="cifRiesgo">0</strong><span>en riesgo</span></div>
+      <div class="cifra vencido"><strong id="cifVencido">0</strong><span>vencidos</span></div>
+      <div class="cifra pausado"><strong id="cifPausado">0</strong><span>en espera</span></div>
+      <div class="barra-sla" id="barraSla" role="img" aria-label="Reparto del SLA de la cola">
+        <span class="tramo en_tiempo" id="tramoEnTiempo"></span>
+        <span class="tramo en_riesgo" id="tramoRiesgo"></span>
+        <span class="tramo vencido" id="tramoVencido"></span>
+        <span class="tramo pausado" id="tramoPausado"></span>
+      </div>
     </div>
     <div id="sesion" hidden>
-      <button id="btnConocimiento" class="terciario" hidden onclick="abrirConocimiento()">Base de Conocimiento</button>
-      <button id="btnReportes" class="terciario" hidden onclick="abrirReportes()">Reportes</button>
-      <button id="btnConfig" class="terciario" hidden onclick="abrirConfiguracion()">Configuración</button>
+      <div id="navPrincipal">
+        <button id="btnConocimiento" class="terciario" hidden onclick="abrirConocimiento()" title="Base de conocimiento">Conocimiento</button>
+        <button id="btnReportes" class="terciario" hidden onclick="abrirReportes()">Reportes</button>
+        <button id="btnConfig" class="terciario" hidden onclick="abrirConfiguracion()">Configuración</button>
+      </div>
       <span id="usuarioInfo"></span>
       <button id="btnSalir" class="salir">Cerrar sesión</button>
     </div>
@@ -29,21 +43,32 @@
 
     <!-- Pantalla de acceso -->
     <section id="vistaAcceso" hidden>
-      <h2 id="tituloAcceso">Iniciar sesión</h2>
-      <form id="formAcceso">
-        <label id="lblNombre" hidden>Nombre completo
-          <input id="nombre" minlength="2" maxlength="150" autocomplete="name">
-        </label>
-        <label>Correo electrónico
-          <input id="email" type="email" required autocomplete="email">
-        </label>
-        <label>Contraseña
-          <input id="password" type="password" required minlength="6" autocomplete="current-password">
-        </label>
-        <button type="submit" id="btnAcceso">Entrar</button>
-      </form>
-      <p class="centrado"><a href="#" id="cambiarModo">¿No tienes cuenta? Regístrate</a></p>
-      <p class="centrado">Demo pública: no uses contraseñas reales ni datos personales.</p>
+      <div class="acceso-panel">
+        <p class="acceso-marca">HelpDesk Lite</p>
+        <p class="acceso-lema">En soporte, el reloj no se para.</p>
+        <ul class="acceso-puntos">
+          <li>SLA con calendario laboral, pausas y festivos</li>
+          <li>Triaje asistido: propone, tú decides</li>
+          <li>Auditoría inmutable de cada cambio</li>
+        </ul>
+      </div>
+      <div class="acceso-form">
+        <h2 id="tituloAcceso">Iniciar sesión</h2>
+        <form id="formAcceso">
+          <label id="lblNombre" hidden>Nombre completo
+            <input id="nombre" minlength="2" maxlength="150" autocomplete="name">
+          </label>
+          <label>Correo electrónico
+            <input id="email" type="email" required autocomplete="email">
+          </label>
+          <label>Contraseña
+            <input id="password" type="password" required minlength="6" autocomplete="current-password">
+          </label>
+          <button type="submit" id="btnAcceso">Entrar</button>
+        </form>
+        <p class="centrado"><a href="#" id="cambiarModo">¿No tienes cuenta? Regístrate</a></p>
+        <p class="centrado">Demo pública: no uses contraseñas reales ni datos personales.</p>
+      </div>
     </section>
 
     <!-- Aplicación -->

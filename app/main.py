@@ -545,6 +545,36 @@ def listar_incidencias(
     return consulta.offset(desplazamiento).limit(limite).all()
 
 
+@app.get(
+    "/incidencias/resumen",
+    response_model=schemas.ResumenCola,
+    summary="Totales de la cola para la cabecera (mismo alcance que el listado)",
+)
+def resumen_cola(
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    consulta = db.query(models.Incidencia)
+    if _es_solicitante(usuario):
+        consulta = consulta.filter(models.Incidencia.solicitante_id == usuario.id)
+
+    abiertas = consulta.filter(
+        models.Incidencia.estado.notin_(("Resuelto", "Cerrado", "Cancelado"))
+    ).all()
+
+    estados = [t.estado_sla for t in abiertas]
+    return {
+        "abiertos": len(abiertas),
+        "en_riesgo": estados.count("en_riesgo"),
+        "vencido": estados.count("vencido"),
+        "pausado": estados.count("pausado"),
+        "en_tiempo": estados.count("en_tiempo"),
+        "sin_asignar": sum(
+            1 for t in abiertas if t.agente_asignado_id is None
+        ),
+    }
+
+
 @app.post(
     "/sla/revisar",
     summary="Revisar SLA y generar alertas/notificaciones (Supervisor o Administrador)",

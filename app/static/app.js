@@ -270,6 +270,7 @@
       tecnicos = null;
       categorias = [];
       grupos = [];
+      $("mandoCifras").hidden = true;
       reglasConfig = [];
       articuloActual = null;
       articuloEditandoId = null;
@@ -421,8 +422,37 @@
         totalIncidencias = Number(respuesta.headers.get("X-Total-Count") || 0);
         pintar(datos);
         pintarPaginacion();
+        cargarMando();
       } catch (error) {
         if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    }
+
+    async function cargarMando() {
+      try {
+        const resumen = await api("/incidencias/resumen");
+        $("mandoCifras").hidden = false;
+        $("cifAbiertos").textContent = resumen.abiertos;
+        $("cifRiesgo").textContent = resumen.en_riesgo;
+        $("cifVencido").textContent = resumen.vencido;
+        $("cifPausado").textContent = resumen.pausado;
+
+        const total =
+          resumen.en_tiempo + resumen.en_riesgo + resumen.vencido + resumen.pausado;
+        const reparto = [
+          ["tramoEnTiempo", resumen.en_tiempo],
+          ["tramoRiesgo", resumen.en_riesgo],
+          ["tramoVencido", resumen.vencido],
+          ["tramoPausado", resumen.pausado]
+        ];
+        for (const [id, valor] of reparto) {
+          const tramo = $(id);
+          if (!tramo) continue;
+          tramo.style.width = total > 0 ? `${(valor / total) * 100}%` : "0";
+        }
+        $("barraSla").hidden = total === 0;
+      } catch (error) {
+        if (error.message !== "401") $("mandoCifras").hidden = true;
       }
     }
 

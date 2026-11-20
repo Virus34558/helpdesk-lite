@@ -512,6 +512,15 @@ class FusionCrear(BaseModel):
     nota: str | None = Field(default=None, max_length=1000)
 
 
+class ResumenCola(BaseModel):
+    abiertos: int
+    en_riesgo: int
+    vencido: int
+    pausado: int
+    en_tiempo: int
+    sin_asignar: int
+
+
 class SugerenciaTriaje(BaseModel):
     tipo: TipoTicket
     impacto: Impacto
