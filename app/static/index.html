@@ -1961,6 +1961,16 @@
              </div>`
           : "";
 
+      const bloqueAsistente =
+        gestor && editable
+          ? `<div class="detalle-bloque">
+               <h3>Asistente de clasificación</h3>
+               <p class="desc">Propone tipo, categoría, impacto y urgencia. No cambia nada hasta que tú lo apliques.</p>
+               <div id="sugerenciaIa" class="desc" aria-live="polite"></div>
+               <button type="button" class="terciario" onclick="pedirSugerencia()">Sugerir con IA</button>
+             </div>`
+          : "";
+
       $("detalleContenido").innerHTML = `
         <div class="detalle-meta">
           <div><strong>Estado</strong><span class="etiqueta estado">${esc(ticket.estado)}</span></div>
@@ -1986,6 +1996,7 @@
         </div>
         ${asignacion}
         ${bloqueObservadores}
+        ${bloqueAsistente}
         ${bloqueFusion}
         <div class="detalle-bloque">
           <h3>Conversación</h3>
@@ -2057,6 +2068,55 @@
       $("nuevoComentario").value = macro.texto;
       if ($("comentarioInterno")) $("comentarioInterno").checked = macro.es_interna;
       $("nuevoComentario").focus();
+    }
+
+    let sugerenciaIa = null;
+
+    async function pedirSugerencia() {
+      const caja = $("sugerenciaIa");
+      if (caja) caja.textContent = "Consultando al asistente…";
+      try {
+        sugerenciaIa = await api(`${API}/${detalleId}/asistencia/triaje`, {
+          method: "POST"
+        });
+        if (!caja) return;
+        const categoria = sugerenciaIa.categoria || "sin categoría propuesta";
+        caja.innerHTML = `
+          <p><strong>${esc(sugerenciaIa.prioridad)}</strong> · ${esc(sugerenciaIa.tipo)} · impacto ${esc(sugerenciaIa.impacto)} · urgencia ${esc(sugerenciaIa.urgencia)}</p>
+          <p>Categoría: ${esc(categoria)}</p>
+          <p>${esc(sugerenciaIa.motivo)}</p>
+          <button type="button" class="secundario" onclick="aplicarSugerencia()">Aplicar sugerencia</button>`;
+      } catch (error) {
+        sugerenciaIa = null;
+        if (caja) {
+          caja.textContent =
+            error.message === "401"
+              ? ""
+              : `El asistente no está disponible: ${error.message}`;
+        }
+      }
+    }
+
+    async function aplicarSugerencia() {
+      if (!sugerenciaIa) return;
+      try {
+        await api(`${API}/${detalleId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            tipo: sugerenciaIa.tipo,
+            impacto: sugerenciaIa.impacto,
+            urgencia: sugerenciaIa.urgencia,
+            categoria_id: sugerenciaIa.categoria_id,
+            version: detalleVersion
+          })
+        });
+        mensajeDetalle("Clasificación aplicada", true);
+        sugerenciaIa = null;
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
     }
 
     async function añadirObservador() {

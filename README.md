@@ -29,6 +29,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Categorías jerárquicas y grupos de soporte:** clasificación por categoría/subcategoría y asignación a equipos de trabajo con sus miembros.
 - **Automatización (M3):** motor de reglas con condiciones `AND`/`OR` y acciones de grupo y auto-asignación `round-robin` o por carga (menos tickets abiertos).
 - **Plantillas de respuesta:** los agentes insertan un texto predefinido en el hilo con un clic; las plantillas internas activan solas la casilla de nota privada.
+- **Triaje asistido con IA local (Ollama):** propone tipo, categoría, impacto y urgencia; el agente aplica o ignora, y la prioridad se recalcula con la matriz ITIL. Sin claves y sin sacar los datos del equipo.
 - **Control de colisión entre agentes:** el detalle abre un canal `SSE` que avisa de quién más está mirando el ticket, y cada edición exige la versión leída: si otro agente guardó antes, la tuya se rechaza con `409` y el mensaje para recargar.
 - **Fusión de duplicados:** un agente cierra un ticket repetido dentro de otro; su conversación y adjuntos pasan al principal, los observadores se heredan sin duplicar y ambos quedan registrados en la auditoría.
 - **Reactivación automática (ITIL):** cuando un solicitante responde a una incidencia en estado `Pendiente de usuario`, esta pasa automáticamente a `En progreso`.
@@ -82,7 +83,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 279 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
+- **pytest**: 290 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -159,6 +160,43 @@ Las categorías y los grupos con tickets, subcategorías o reglas asociadas no s
 | KPIs por periodo y filtros (`desde`, `hasta`, `grupo_asignado_id`, `agente_asignado_id`, `solicitante_id`, `departamento`) | `GET /reportes/kpis?desde=2026-01-01&hasta=2026-12-31` | `supervisor`, `administrador` |
 | Exportar CSV del listado filtrado (`estado`, `prioridad`, `categoria_id`, ...) | `GET /reportes/incidencias.csv?estado=Resuelto` | `supervisor`, `administrador` |
 
+### Asistente de triaje (`/incidencias/{id}/asistencia`)
+
+| Acción | Método y ruta | Acceso |
+|---|---|---|
+| Sugerir clasificación del ticket | `POST /incidencias/{id_o_codigo}/asistencia/triaje` | `agente`, `supervisor`, `administrador` |
+
+La sugerencia nunca se aplica sola: devuelve tipo, impacto, urgencia, **prioridad recalculada con la matriz ITIL** (no la del modelo), categoría mapeada al catálogo real y un motivo. El agente decide si la aplica con un `PATCH` normal. Sin proveedor configurado el endpoint responde `503` y el resto de la aplicación no cambia.
+
+### Activar el asistente de triaje (local, opcional)
+
+El botón **«Sugerir con IA»** del detalle propone tipo, categoría, impacto y urgencia a partir del título y la descripción. Funciona con **Ollama en tu máquina**: sin claves, sin coste y sin sacar los datos de tu equipo.
+
+```bash
+ollama pull qwen2.5:7b-instruct     # ~4,7 GB
+set ASISTENTE_PROVEEDOR=ollama      # Linux/Mac: export ...
+uvicorn app.main:app --reload
+```
+
+Cómo está montado, y por qué:
+
+- **La prioridad no la decide el modelo.** Se recalcula con la matriz ITIL a partir del impacto y la urgencia propuestos.
+- **Nada se aplica solo.** La sugerencia vuelve al agente con su motivo; él pulsa «Aplicar» y eso es un `PATCH` normal con control de versión.
+- **La respuesta se valida.** Valores fuera de rango o JSON ilegible devuelven `502` en lugar de rellenar el ticket con basura.
+- **Caché por texto y tope diario** (`ASISTENTE_MAX_DIA`) para que una demo pública no se convierta en un grifo abierto.
+- **Sin proveedor configurado, el endpoint devuelve `503`** y el resto de la aplicación no nota nada.
+
+Medición con `qwen2.5:7b-instruct` en una RTX 2060 (5 tickets escritos a mano):
+
+| Métrica | Resultado |
+|---|---|
+| Acierto de categoría | 5/5 |
+| Acierto de impacto | 3/5 (sobreestima: 12 personas → «Alto» en vez de «Medio») |
+| Latencia | 2,5-3,3 s en caliente, 13,9 s la primera |
+| Segunda consulta idéntica | 0,01 s (caché) |
+
+Son cinco casos: sirve como señal, no como métrica. Para afirmar algo haría falta un conjunto etiquetado de 30-50 tickets y medir acierto por categoría. Eso está pendiente y lo digo en el roadmap.
+
 ### Plantillas de respuesta (`/macros`)
 
 | Acción | Método y ruta | Acceso |
@@ -224,6 +262,11 @@ Las bases creadas antes de adoptar Alembic se detectan y se sellan automáticame
 | `DIAS_FESTIVOS` | Festivos que no cuentan como días laborables (`2026-01-01,2026-01-06`) | Vacío |
 | `SLA_POLITICAS` | Sobrescribe objetivos por prioridad en JSON: `{"P4 - Baja": {"frt_minutos": 60, "rt_horas": 8}}` | Matriz ITIL por defecto |
 | `INGESTA_CORREO_TOKEN` | Token compartido que debe enviar el conector de correo en `X-Ingesta-Token` | Ingesta desactivada (503) |
+| `ASISTENTE_PROVEEDOR` | `ollama` activa el triaje asistido con un modelo local | Desactivado (503) |
+| `OLLAMA_URL` | Endpoint de Ollama | `http://127.0.0.1:11434` |
+| `OLLAMA_MODELO` | Modelo usado para clasificar | `qwen2.5:7b-instruct` |
+| `ASISTENTE_TIMEOUT` | Segundos máximos de espera al modelo | 60 |
+| `ASISTENTE_MAX_DIA` | Sugerencias por usuario y día | 50 |
 | `UPLOAD_DIR` | Carpeta donde se guardan los adjuntos (backend local) | `uploads` |
 | `STORAGE_BACKEND` | `local` (disco) o `s3` (bucket S3 compatible) | `local` |
 | `S3_BUCKET` | Bucket de adjuntos cuando `STORAGE_BACKEND=s3` | Obligatorio con S3 |
@@ -342,6 +385,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Dashboard con KPIs (SLA, MTTA, MTTR, FCR) y exportación a CSV
 - [x] Migraciones con Alembic
 - [x] Paginación (`limite`/`desplazamiento` con `X-Total-Count`) y búsqueda por texto en título, descripción y código legible
+- [x] Triaje asistido con IA local (Ollama) y validación estricta de la respuesta
 - [x] Control de colisión de agentes: presencia en vivo (SSE) y bloqueo optimista por versión
 - [x] Plantillas de respuesta reutilizables (texto público o nota interna)
 - [x] Fusión de tickets duplicados con herencia de hilo, adjuntos y observadores

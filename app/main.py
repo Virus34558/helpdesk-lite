@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from . import (
     almacenamiento,
+    asistente,
     auditoria,
     auth,
     automatizacion,
@@ -974,6 +975,40 @@ def valorar_incidencia(
         "comentario": incidencia.csat_comentario,
         "creada_en": incidencia.csat_en,
     }
+
+
+@app.post(
+    "/incidencias/{identificador}/asistencia/triaje",
+    response_model=schemas.SugerenciaTriaje,
+    summary="Sugerir clasificación del ticket con el asistente (staff)",
+)
+def sugerir_triaje(
+    identificador: str,
+    db: Session = Depends(get_db),
+    gestor: models.Usuario = Depends(solo_gestores),
+):
+    incidencia = _buscar_por_id_o_codigo(db, identificador)
+    if incidencia.estado in ("Cerrado", "Cancelado"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se puede clasificar una incidencia en estado {incidencia.estado}",
+        )
+
+    try:
+        return asistente.sugerir_triaje(db, incidencia, gestor.id)
+    except asistente.AsistenteNoDisponible as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
+        ) from None
+    except asistente.LimiteAsistente as exc:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=str(exc)
+        ) from None
+    except asistente.RespuestaInvalida as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"El asistente devolvió una respuesta no válida: {exc}",
+        ) from None
 
 
 @app.post(

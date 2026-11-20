@@ -511,6 +511,16 @@ class FusionCrear(BaseModel):
     nota: str | None = Field(default=None, max_length=1000)
 
 
+class SugerenciaTriaje(BaseModel):
+    tipo: TipoTicket
+    impacto: Impacto
+    urgencia: Urgencia
+    prioridad: Prioridad
+    categoria_id: int | None = None
+    categoria: str | None = None
+    motivo: str = ""
+
+
 class MacroCrear(BaseModel):
     nombre: str = Field(min_length=2, max_length=120)
     texto: str = Field(min_length=2, max_length=5000)
