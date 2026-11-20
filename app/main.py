@@ -43,6 +43,7 @@ from .routers import auth as auth_router
 from .routers import categorias as categorias_router
 from .routers import conocimiento as conocimiento_router
 from .routers import grupos as grupos_router
+from .routers import ingesta as ingesta_router
 from .routers import notificaciones as notificaciones_router
 from .routers import reglas as reglas_router
 from .routers import reportes as reportes_router
@@ -77,6 +78,7 @@ app.include_router(grupos_router.router)
 app.include_router(reglas_router.router)
 app.include_router(conocimiento_router.router)
 app.include_router(reportes_router.router)
+app.include_router(ingesta_router.router)
 
 # Quien puede gestionar incidencias (cambiar estado, impacto, asignar, resolver...)
 solo_gestores = auth.require_roles(

@@ -474,3 +474,20 @@ class EncuestaCSATRespuesta(BaseModel):
     puntuacion: int
     comentario: str | None
     creada_en: datetime
+
+
+class CorreoEntrante(BaseModel):
+    """Correo normalizado que llega desde el conector IMAP/Graph/webhook."""
+
+    remitente: EmailStr
+    asunto: str = Field(default="", max_length=255)
+    cuerpo: str = Field(default="", max_length=20000)
+    mensaje_id: str | None = Field(default=None, max_length=255)
+    en_respuesta_a: str | None = Field(default=None, max_length=255)
+    auto_submitted: bool = False
+
+
+class RespuestaIngesta(BaseModel):
+    resultado: str
+    incidencia_id: int | None = None
+    motivo: str | None = None

@@ -272,6 +272,19 @@ class ArticuloConocimiento(Base):
     categoria: Mapped["Categoria | None"] = relationship()
 
 
+class CorreoIngestado(Base):
+    """Mensajes de correo ya procesados, para no duplicar tickets (antiloop)."""
+
+    __tablename__ = "correos_ingestados"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mensaje_id: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    incidencia_id: Mapped[int] = mapped_column(
+        ForeignKey("incidencias.id"), index=True
+    )
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class RegistroAuditoria(Base):
     __tablename__ = "registros_auditoria"
 

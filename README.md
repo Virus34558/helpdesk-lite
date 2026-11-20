@@ -78,7 +78,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 233 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
+- **pytest**: 242 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -152,6 +152,14 @@ Las categorías y los grupos con tickets, subcategorías o reglas asociadas no s
 | KPIs por periodo y filtros (`desde`, `hasta`, `grupo_asignado_id`, `agente_asignado_id`, `solicitante_id`, `departamento`) | `GET /reportes/kpis?desde=2026-01-01&hasta=2026-12-31` | `supervisor`, `administrador` |
 | Exportar CSV del listado filtrado (`estado`, `prioridad`, `categoria_id`, ...) | `GET /reportes/incidencias.csv?estado=Resuelto` | `supervisor`, `administrador` |
 
+### Ingesta de correo (`/ingesta`)
+
+| Acción | Método y ruta | Acceso |
+|---|---|---|
+| Recibir un correo normalizado (crea ticket o responde al hilo) | `POST /ingesta/correo` | Cabecera `X-Ingesta-Token` |
+
+El conector de correo (IMAP, Microsoft Graph, SES) normaliza el mensaje y lo envía aquí. Si el asunto o la cabecera `In-Reply-To` contiene un código (`INC-2026-000001`), el cuerpo se añade como comentario público; si el ticket estaba `Pendiente de usuario`, se reactiva. Sin código se crea un ticket con canal `Email` y el remitente como solicitante (se da de alta como usuario provisional si no existe). Las respuestas automáticas (`Auto-Submitted`), los remitentes `no-reply@`/`mailer-daemon@` y los `mensaje_id` ya procesados se descartan para evitar bucles y duplicados.
+
 ### Notificaciones (`/notificaciones`)
 
 | Acción | Método y ruta | Acceso |
@@ -201,6 +209,7 @@ Las bases creadas antes de adoptar Alembic se detectan y se sellan automáticame
 | `SLA_CHECK_INTERVAL_SECONDS` | Intervalo entre revisiones de SLA (mínimo 30 s) | 300 (5 minutos) |
 | `DIAS_FESTIVOS` | Festivos que no cuentan como días laborables (`2026-01-01,2026-01-06`) | Vacío |
 | `SLA_POLITICAS` | Sobrescribe objetivos por prioridad en JSON: `{"P4 - Baja": {"frt_minutos": 60, "rt_horas": 8}}` | Matriz ITIL por defecto |
+| `INGESTA_CORREO_TOKEN` | Token compartido que debe enviar el conector de correo en `X-Ingesta-Token` | Ingesta desactivada (503) |
 | `UPLOAD_DIR` | Carpeta donde se guardan los adjuntos (backend local) | `uploads` |
 | `STORAGE_BACKEND` | `local` (disco) o `s3` (bucket S3 compatible) | `local` |
 | `S3_BUCKET` | Bucket de adjuntos cuando `STORAGE_BACKEND=s3` | Obligatorio con S3 |
@@ -317,6 +326,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Dashboard con KPIs (SLA, MTTA, MTTR, FCR) y exportación a CSV
 - [x] Migraciones con Alembic
 - [x] Paginación (`limite`/`desplazamiento` con `X-Total-Count`) y búsqueda por texto en título, descripción y código legible
+- [x] Ingesta de tickets por correo vía webhook (conector IMAP/Graph/SES), con antiduplicados y autorrespuestas ignoradas
 - [x] Encuesta de satisfacción (CSAT) y su KPI en los reportes
 - [ ] Exportación a XLSX además de CSV
 - [ ] Búsqueda full-text indexada (PostgreSQL `tsvector` / Meilisearch)
