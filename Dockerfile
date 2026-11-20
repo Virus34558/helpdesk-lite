@@ -1,5 +1,13 @@
 FROM python:3.13-slim
 
+# El calendario laboral (L-V 09:00-18:00) y las horas mostradas usan la hora
+# local del contenedor. Sin TZ, el contenedor arranca en UTC y los SLA de los
+# tickets entrarían desplazados respecto al horario de oficina.
+ENV TZ=Europe/Madrid
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /code
 
 COPY requirements.txt .

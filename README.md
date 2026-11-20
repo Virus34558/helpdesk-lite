@@ -197,8 +197,17 @@ Las bases creadas antes de adoptar Alembic se detectan y se sellan automáticame
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Duración de la sesión | 1440 (24 horas) |
 | `SLA_SCHEDULER_ENABLED` | Activa la revisión automática de SLA en segundo plano | Desactivada |
 | `SLA_CHECK_INTERVAL_SECONDS` | Intervalo entre revisiones de SLA (mínimo 30 s) | 300 (5 minutos) |
-| `UPLOAD_DIR` | Carpeta donde se guardan los adjuntos | `uploads` |
+| `UPLOAD_DIR` | Carpeta donde se guardan los adjuntos (backend local) | `uploads` |
+| `STORAGE_BACKEND` | `local` (disco) o `s3` (bucket S3 compatible) | `local` |
+| `S3_BUCKET` | Bucket de adjuntos cuando `STORAGE_BACKEND=s3` | Obligatorio con S3 |
+| `S3_ENDPOINT_URL` | Endpoint S3 alternativo (MinIO, Backblaze) | AWS por defecto |
+| `S3_REGION` | Región del bucket | La del cliente boto3 |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | Credenciales del bucket | Cadena de credenciales de AWS |
+| `S3_PRESIGN_SECONDS` | Validez de la URL firmada de descarga (mínimo 60) | 300 |
 | `MAX_UPLOAD_MB` | Tamaño máximo por adjunto en MB | 25 |
+| `AUTH_MAX_INTENTOS` | Peticiones permitidas por IP y ruta en login/registro | 10 |
+| `AUTH_VENTANA_SEGUNDOS` | Ventana del límite de intentos, en segundos | 60 |
+| `ENTORNO` | `produccion` exige `DATABASE_URL` al arrancar (Render lo activa solo) | Vacío |
 | `SMTP_HOST` | Servidor SMTP para enviar correos | Sin correo real (envío simulado) |
 | `SMTP_PORT` | Puerto SMTP | 587 |
 | `SMTP_USER` / `SMTP_PASSWORD` | Credenciales SMTP | Sin autenticación |
@@ -206,6 +215,14 @@ Las bases creadas antes de adoptar Alembic se detectan y se sellan automáticame
 | `SMTP_TLS` | Usar STARTTLS | `true` |
 
 En producción, `SECRET_KEY` debe ser una cadena larga y aleatoria, y nunca debe subirse al repositorio.
+
+El servidor de producción detecta si corre en Render (`RENDER`) o con `ENTORNO=produccion`: en ese caso **exige `DATABASE_URL`** y se niega a arrancar si fuese a usar SQLite efímero. Expone `GET /health`, que comprueba la base de datos y devuelve `503` si no responde.
+
+### Zona horaria y adjuntos en producción
+
+- El calendario laboral y las fechas se calculan con la hora local del servidor. La imagen Docker fija `TZ=Europe/Madrid`; si despliegas sin Docker, define `TZ` en el panel del proveedor. Las fechas se muestran con la zona del navegador.
+- El disco de Render es efímero: los adjuntos guardados en local se pierden en cada despliegue. En producción configura `STORAGE_BACKEND=s3` con un bucket y las descargas pasan a usar URLs firmadas temporales.
+- El límite de intentos de login y registro se lleva en memoria del proceso: con varios workers cada uno cuenta por separado.
 
 ## Ejecutar con Docker
 
