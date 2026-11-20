@@ -188,6 +188,15 @@ def _email_de(db: Session, usuario_id: int | None) -> str | None:
     return usuario.email
 
 
+def _emails_observadores(db: Session, incidencia_id: int) -> list[str]:
+    return [
+        observador.email
+        for observador in db.query(models.Observador)
+        .filter(models.Observador.incidencia_id == incidencia_id)
+        .order_by(models.Observador.id.asc())
+    ]
+
+
 def _buscar_por_id_o_codigo(db: Session, identificador: str) -> models.Incidencia:
     """Busca una incidencia por su ID numérico o por su id_legible (ej: INC-2026-000001)."""
     if identificador.isascii() and identificador.isdigit() and len(identificador) <= 9:
@@ -776,10 +785,12 @@ def resolver_incidencia(
     db.commit()
     db.refresh(incidencia)
 
-    if destinatario:
+    for destino in dict.fromkeys([destinatario, *_emails_observadores(db, incidencia.id)]):
+        if not destino:
+            continue
         background_tasks.add_task(
             correo.enviar_correo_seguro,
-            destinatario,
+            destino,
             f"[{incidencia.id_legible}] Incidencia resuelta",
             (
                 f"Tu incidencia {incidencia.id_legible} "
@@ -858,26 +869,31 @@ def agregar_comentario(
         es_interno=es_interno,
     )
 
-    destinatario = None
+    destinatarios: list[str] = []
     asunto = ""
     if not es_interno:
         if _es_solicitante(usuario):
-            destinatario = _email_de(db, incidencia.agente_asignado_id)
+            principal = _email_de(db, incidencia.agente_asignado_id)
             asunto = (
                 f"[{incidencia.id_legible}] Nueva respuesta del solicitante"
             )
         else:
-            destinatario = _email_de(db, incidencia.solicitante_id)
+            principal = _email_de(db, incidencia.solicitante_id)
             asunto = (
                 f"[{incidencia.id_legible}] Nueva respuesta del equipo de soporte"
             )
-        if destinatario == usuario.email:
-            destinatario = None
+        candidatos = [principal, *_emails_observadores(db, incidencia.id)]
+        # Sin duplicados y sin escribir al propio autor del comentario
+        destinatarios = [
+            email
+            for email in dict.fromkeys(candidatos)
+            if email and email.lower() != usuario.email.lower()
+        ]
 
     db.commit()
     db.refresh(comentario)
 
-    if destinatario:
+    for destinatario in destinatarios:
         background_tasks.add_task(
             correo.enviar_correo_seguro,
             destinatario,
@@ -941,6 +957,106 @@ def valorar_incidencia(
         "comentario": incidencia.csat_comentario,
         "creada_en": incidencia.csat_en,
     }
+
+
+@app.get(
+    "/incidencias/{identificador}/observadores",
+    response_model=list[schemas.ObservadorRespuesta],
+    summary="Listar las personas en copia de una incidencia",
+)
+def listar_observadores(
+    identificador: str,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+    return (
+        db.query(models.Observador)
+        .filter(models.Observador.incidencia_id == incidencia.id)
+        .order_by(models.Observador.id.asc())
+        .all()
+    )
+
+
+@app.post(
+    "/incidencias/{identificador}/observadores",
+    response_model=schemas.ObservadorRespuesta,
+    status_code=status.HTTP_201_CREATED,
+    summary="Añadir una persona en copia (CC) a la incidencia",
+)
+def añadir_observador(
+    identificador: str,
+    datos: schemas.ObservadorCrear,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+    if incidencia.estado in ("Cerrado", "Cancelado"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"No se pueden añadir observadores a una incidencia en estado {incidencia.estado}",
+        )
+
+    email = datos.email.lower().strip()
+    existente = (
+        db.query(models.Observador)
+        .filter(
+            models.Observador.incidencia_id == incidencia.id,
+            models.Observador.email == email,
+        )
+        .first()
+    )
+    if existente is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esa persona ya está en copia en esta incidencia",
+        )
+
+    observador = models.Observador(incidencia_id=incidencia.id, email=email)
+    db.add(observador)
+    auditoria.registrar_evento(
+        db,
+        incidencia.id,
+        usuario.id,
+        accion="observador",
+        campo="observadores",
+        valor_nuevo=email,
+    )
+    db.commit()
+    db.refresh(observador)
+    return observador
+
+
+@app.delete(
+    "/incidencias/{identificador}/observadores/{observador_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Quitar una persona en copia de la incidencia",
+)
+def quitar_observador(
+    identificador: str,
+    observador_id: int,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+    observador = db.get(models.Observador, observador_id)
+    if observador is None or observador.incidencia_id != incidencia.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Observador no encontrado",
+        )
+
+    auditoria.registrar_evento(
+        db,
+        incidencia.id,
+        usuario.id,
+        accion="observador",
+        campo="observadores",
+        valor_anterior=observador.email,
+    )
+    db.delete(observador)
+    db.commit()
+    return None
 
 
 @app.get(

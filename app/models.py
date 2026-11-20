@@ -272,6 +272,22 @@ class ArticuloConocimiento(Base):
     categoria: Mapped["Categoria | None"] = relationship()
 
 
+class Observador(Base):
+    """Persona en copia (CC) que recibe las respuestas públicas del ticket."""
+
+    __tablename__ = "observadores"
+    __table_args__ = (
+        UniqueConstraint("incidencia_id", "email", name="uq_observador_incidencia_email"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    incidencia_id: Mapped[int] = mapped_column(
+        ForeignKey("incidencias.id"), index=True
+    )
+    email: Mapped[str] = mapped_column(String(255))
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
 class CorreoIngestado(Base):
     """Mensajes de correo ya procesados, para no duplicar tickets (antiloop)."""
 

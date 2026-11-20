@@ -491,3 +491,15 @@ class RespuestaIngesta(BaseModel):
     resultado: str
     incidencia_id: int | None = None
     motivo: str | None = None
+
+
+class ObservadorCrear(BaseModel):
+    email: EmailStr
+
+
+class ObservadorRespuesta(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    email: str
+    creado_en: datetime
