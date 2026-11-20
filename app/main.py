@@ -17,13 +17,14 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, text
 from sqlalchemy.orm import Session
 
 from . import (
     auditoria,
     auth,
     automatizacion,
+    config,
     correo,
     models,
     reglas,
@@ -47,6 +48,7 @@ aplicar_migraciones(engine)
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    config.validar_configuracion()
     tarea = None
     if scheduler.scheduler_habilitado():
         tarea = asyncio.create_task(scheduler.bucle_revision_sla())
@@ -83,6 +85,19 @@ solo_gestores = auth.require_roles(
 @app.get("/", include_in_schema=False)
 def inicio():
     return FileResponse(Path(__file__).parent / "static" / "index.html")
+
+
+@app.get("/health", include_in_schema=False)
+def salud(db: Session = Depends(get_db)):
+    """Comprobación de salud para el orquestador (Render, Docker, balanceador)."""
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"estado": "error", "base_datos": "no disponible"},
+        )
+    return {"estado": "ok", "base_datos": "ok"}
 
 
 def _es_solicitante(usuario: models.Usuario) -> bool:
