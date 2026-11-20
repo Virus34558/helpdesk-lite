@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import secrets
 import tempfile
@@ -19,7 +20,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
@@ -31,6 +32,7 @@ from . import (
     config,
     correo,
     models,
+    presencia,
     reglas,
     scheduler,
     schemas,
@@ -49,12 +51,13 @@ from .routers import notificaciones as notificaciones_router
 from .routers import reglas as reglas_router
 from .routers import reportes as reportes_router
 
-aplicar_migraciones(engine)
-
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     config.validar_configuracion()
+    # Se migra al arrancar, no al importar: importar el módulo no debe tocar
+    # la base de datos (los tests lo hacen y se llevarían por delante la local).
+    aplicar_migraciones(engine)
     tarea = None
     if scheduler.scheduler_habilitado():
         tarea = asyncio.create_task(scheduler.bucle_revision_sla())
@@ -600,7 +603,18 @@ def actualizar_incidencia(
         )
 
     cambios = datos.model_dump(exclude_unset=True)
+    version_enviada = cambios.pop("version", None)
     campos_enviados = set(cambios)
+
+    if version_enviada is not None and version_enviada != incidencia.version:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "La incidencia cambió mientras la estabas editando "
+                f"(versión actual {incidencia.version}, enviaste {version_enviada}). "
+                "Recarga el ticket y vuelve a aplicar los cambios."
+            ),
+        )
     nuevo_estado = cambios.pop("estado", None)
     nota = cambios.pop("nota_resolucion", None)
 
@@ -721,6 +735,7 @@ def actualizar_incidencia(
             permitir_reasignar="agente_asignado_id" not in campos_enviados,
         )
 
+    incidencia.version = incidencia.version + 1
     db.commit()
     db.refresh(incidencia)
     return incidencia
@@ -1065,6 +1080,42 @@ def fusionar_incidencias(
     db.commit()
     db.refresh(destino)
     return destino
+
+
+@app.get(
+    "/incidencias/{identificador}/presencia",
+    include_in_schema=False,
+    summary="Quién está viendo el ticket, en vivo (Server-Sent Events)",
+)
+async def presencia_en_vivo(
+    identificador: str,
+    token: str | None = None,
+    db: Session = Depends(get_db),
+):
+    # EventSource no permite cabeceras propias, así que el token viaja en la query.
+    usuario = auth.get_current_user(token=token, db=db)
+    incidencia = _buscar_visible(db, identificador, usuario)
+    ticket_id = incidencia.id
+
+    async def eventos():
+        presencia.entrar(ticket_id, usuario.email)
+        try:
+            while True:
+                otros = presencia.presentes(ticket_id, excluir=usuario.email)
+                yield f"data: {json.dumps({'viendo': otros})}\n\n"
+                await asyncio.sleep(2)
+        finally:
+            presencia.salir(ticket_id, usuario.email)
+
+    return StreamingResponse(
+        eventos(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get(

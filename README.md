@@ -29,6 +29,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **Categorías jerárquicas y grupos de soporte:** clasificación por categoría/subcategoría y asignación a equipos de trabajo con sus miembros.
 - **Automatización (M3):** motor de reglas con condiciones `AND`/`OR` y acciones de grupo y auto-asignación `round-robin` o por carga (menos tickets abiertos).
 - **Plantillas de respuesta:** los agentes insertan un texto predefinido en el hilo con un clic; las plantillas internas activan solas la casilla de nota privada.
+- **Control de colisión entre agentes:** el detalle abre un canal `SSE` que avisa de quién más está mirando el ticket, y cada edición exige la versión leída: si otro agente guardó antes, la tuya se rechaza con `409` y el mensaje para recargar.
 - **Fusión de duplicados:** un agente cierra un ticket repetido dentro de otro; su conversación y adjuntos pasan al principal, los observadores se heredan sin duplicar y ambos quedan registrados en la auditoría.
 - **Reactivación automática (ITIL):** cuando un solicitante responde a una incidencia en estado `Pendiente de usuario`, esta pasa automáticamente a `En progreso`.
 - **Historial de auditoría inmutable:** línea de tiempo inalterable que registra automáticamente quién hizo qué y cuándo (creación, transiciones de estado, cambios de prioridad, asignación de técnicos, resolución y comentarios).
@@ -81,7 +82,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 267 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
+- **pytest**: 279 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -108,6 +109,7 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Crear incidencia / ticket | `POST /incidencias` | Autenticado |
 | Listar (con filtros: estado, prioridad, tipo, categoría, grupo, agente, sin asignar, sin grupo, SLA) | `GET /incidencias?estado=Nuevo&prioridad=P1 - Crítica&tipo=Incidencia&categoria_id=1&grupo_asignado_id=2&sin_asignar=true&sin_grupo=true&sla_vencido=true` | Autenticado (el solicitante solo ve las suyas) |
 | Buscar y paginar | `GET /incidencias?q=impresora&limite=25&desplazamiento=0` — `q` busca en título, descripción y código legible; el total llega en `X-Total-Count` | Autenticado |
+| Presencia en vivo del ticket (SSE) | `GET /incidencias/{id_o_codigo}/presencia?token=…` — emite `{"viendo": [...]}` cada 2 s | Autenticado (token en query) |
 | Consultar una (por ID numérico o código legible) | `GET /incidencias/{id_o_codigo}` | Autenticado (idem) |
 | Asignar o desasignar técnico | `POST /incidencias/{id_o_codigo}/asignar` | `agente`, `supervisor`, `administrador` |
 | Actualizar estado, tipo, impacto, urgencia, categoría o grupo | `PATCH /incidencias/{id_o_codigo}` | `agente`, `supervisor`, `administrador` |
@@ -248,6 +250,8 @@ El servidor de producción detecta si corre en Render (`RENDER`) o con `ENTORNO=
 - El calendario laboral y las fechas se calculan con la hora local del servidor. La imagen Docker fija `TZ=Europe/Madrid`; si despliegas sin Docker, define `TZ` en el panel del proveedor. Las fechas se muestran con la zona del navegador.
 - El disco de Render es efímero: los adjuntos guardados en local se pierden en cada despliegue. En producción configura `STORAGE_BACKEND=s3` con un bucket y las descargas pasan a usar URLs firmadas temporales.
 - El límite de intentos de login y registro se lleva en memoria del proceso: con varios workers cada uno cuenta por separado.
+- La presencia de agentes también es por proceso: con varios workers, dos usuarios en workers distintos no se ven. Para eso haría falta Redis.
+- El token de la conexión SSE viaja en la URL porque `EventSource` no admite cabeceras; conviene servir siempre por HTTPS.
 
 ## Ejecutar con Docker
 
@@ -338,6 +342,7 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Dashboard con KPIs (SLA, MTTA, MTTR, FCR) y exportación a CSV
 - [x] Migraciones con Alembic
 - [x] Paginación (`limite`/`desplazamiento` con `X-Total-Count`) y búsqueda por texto en título, descripción y código legible
+- [x] Control de colisión de agentes: presencia en vivo (SSE) y bloqueo optimista por versión
 - [x] Plantillas de respuesta reutilizables (texto público o nota interna)
 - [x] Fusión de tickets duplicados con herencia de hilo, adjuntos y observadores
 - [x] Observadores en copia (CC) por ticket, notificados en cada respuesta pública

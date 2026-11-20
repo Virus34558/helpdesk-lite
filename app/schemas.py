@@ -305,6 +305,7 @@ class IncidenciaActualizar(BaseModel):
     grupo_asignado_id: int | None = None
     categoria_id: int | None = None
     nota_resolucion: str | None = Field(default=None, min_length=5, max_length=1000)
+    version: int | None = Field(default=None, ge=1)
 
 
 class AsignarAgente(BaseModel):
@@ -336,6 +337,7 @@ class IncidenciaRespuesta(BaseModel):
     creada_en: datetime
     actualizada_en: datetime
     resuelta_en: datetime | None
+    version: int = 1
     csat_puntuacion: int | None = None
     csat_comentario: str | None = None
 

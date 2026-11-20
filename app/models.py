@@ -146,6 +146,10 @@ class Incidencia(Base):
     )
     resuelta_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Bloqueo optimista: se incrementa en cada actualización para detectar
+    # que dos agentes editaron el mismo ticket a la vez.
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
     # Encuesta de satisfacción (CSAT) que rellena el solicitante al resolverse
     csat_puntuacion: Mapped[int | None] = mapped_column(Integer, nullable=True)
     csat_comentario: Mapped[str | None] = mapped_column(Text, nullable=True)

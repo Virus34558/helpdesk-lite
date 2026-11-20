@@ -873,6 +873,7 @@
     try { usuario = JSON.parse(sessionStorage.getItem("usuario")); } catch (e) { }
     let modoRegistro = false;
     let detalleId = null;
+    let detalleVersion = null;
     let tecnicos = null;
     let adjuntosDetalle = [];
     let categorias = [];
@@ -1728,6 +1729,7 @@
       $("detalleTitulo").textContent = "Cargando…";
       $("detalleCodigo").textContent = "";
       $("detalleContenido").innerHTML = '<p class="vacio">Cargando…</p>';
+      abrirPresencia(id);
       try {
         if (esGestor()) await cargarTecnicos();
         await cargarDetalle();
@@ -1744,6 +1746,7 @@
     function cerrarDetalle() {
       detalleId = null;
       adjuntosDetalle = [];
+      cerrarPresencia();
       if ($("modalDetalle")) $("modalDetalle").hidden = true;
       if ($("detalleContenido")) $("detalleContenido").innerHTML = "";
       if ($("detalleMensaje")) $("detalleMensaje").hidden = true;
@@ -1763,6 +1766,7 @@
 
     function pintarDetalle(ticket, comentarios, historial, adjuntos, observadores = []) {
       adjuntosDetalle = adjuntos;
+      detalleVersion = ticket.version;
       $("detalleTitulo").textContent = ticket.titulo;
       $("detalleCodigo").textContent = `${ticket.id_legible} · #${ticket.id}`;
 
@@ -1971,6 +1975,7 @@
           <div><strong>Grupo</strong>${esc(nombreGrupo(ticket.grupo_asignado_id))}</div>
         </div>
         <p class="detalle-desc">${esc(ticket.descripcion) || '<span class="desc">Sin descripción</span>'}</p>
+        <p id="presenciaVivo" class="desc" aria-live="polite"></p>
         ${nota}
         ${encuesta}
         ${clasificacion}
@@ -2001,7 +2006,8 @@
           method: "PATCH",
           body: JSON.stringify({
             categoria_id: categoria ? Number(categoria) : null,
-            grupo_asignado_id: grupo ? Number(grupo) : null
+            grupo_asignado_id: grupo ? Number(grupo) : null,
+            version: detalleVersion
           })
         });
         mensajeDetalle("Clasificación actualizada", true);
@@ -2010,6 +2016,37 @@
         await cargar();
       } catch (error) {
         if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    let eventoPresencia = null;
+
+    function abrirPresencia(ticketId) {
+      cerrarPresencia();
+      if (!token || typeof EventSource === "undefined") return;
+      const url = `${API}/${ticketId}/presencia?token=${encodeURIComponent(token)}`;
+      try {
+        eventoPresencia = new EventSource(url);
+      } catch (error) {
+        return;
+      }
+      eventoPresencia.onmessage = (evento) => {
+        let datos = { viendo: [] };
+        try { datos = JSON.parse(evento.data); } catch (e) { return; }
+        const aviso = $("presenciaVivo");
+        if (!aviso) return;
+        const otros = datos.viendo || [];
+        aviso.textContent = otros.length
+          ? `También está mirando este ticket: ${otros.join(", ")}`
+          : "";
+      };
+      eventoPresencia.onerror = () => {};
+    }
+
+    function cerrarPresencia() {
+      if (eventoPresencia) {
+        eventoPresencia.close();
+        eventoPresencia = null;
       }
     }
 

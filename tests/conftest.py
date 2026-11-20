@@ -30,6 +30,8 @@ def client(motor, monkeypatch, tmp_path):
     monkeypatch.delenv("ADMIN_EMAIL", raising=False)
     # El scheduler no debe arrancar durante los tests
     monkeypatch.delenv("SLA_SCHEDULER_ENABLED", raising=False)
+    # Los tests crean su propio esquema: no queremos migrar la base local
+    monkeypatch.setenv("AUTO_MIGRATE", "0")
     # Nunca enviar correos reales desde los tests
     monkeypatch.delenv("SMTP_HOST", raising=False)
     monkeypatch.setenv("UPLOAD_DIR", str(tmp_path / "uploads"))
