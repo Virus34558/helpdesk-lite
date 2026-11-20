@@ -146,6 +146,11 @@ class Incidencia(Base):
     )
     resuelta_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
+    # Encuesta de satisfacción (CSAT) que rellena el solicitante al resolverse
+    csat_puntuacion: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    csat_comentario: Mapped[str | None] = mapped_column(Text, nullable=True)
+    csat_en: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     # Métricas y temporizadores de SLA
     sla_limite_primera_respuesta: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True

@@ -1,3 +1,7 @@
+from pathlib import Path
+
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
@@ -5,7 +9,14 @@ from app import models
 from app.database import Base
 from app.migraciones import aplicar_migraciones
 
-REVISION_INICIAL = "5c2debf054a0"
+RAIZ = Path(__file__).resolve().parents[1]
+
+
+def _cabeza():
+    """Última revisión de Alembic según los ficheros de migración."""
+    config = Config(str(RAIZ / "alembic.ini"))
+    config.set_main_option("script_location", str(RAIZ / "migrations"))
+    return ScriptDirectory.from_config(config).get_current_head()
 
 
 def _motor(tmp_path, nombre):
@@ -25,7 +36,7 @@ def test_crea_esquema_desde_cero(tmp_path, monkeypatch):
             version = conexion.execute(
                 text("select version_num from alembic_version")
             ).scalar()
-        assert version == REVISION_INICIAL
+        assert version == _cabeza()
     finally:
         engine.dispose()
 
@@ -55,7 +66,7 @@ def test_sella_base_previa_sin_perder_datos(tmp_path, monkeypatch):
                 text("select version_num from alembic_version")
             ).scalar()
             total = conexion.execute(text("select count(*) from usuarios")).scalar()
-        assert version == REVISION_INICIAL
+        assert version == _cabeza()
         assert total == 1
     finally:
         engine.dispose()

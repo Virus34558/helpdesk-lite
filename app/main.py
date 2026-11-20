@@ -888,6 +888,59 @@ def agregar_comentario(
     return comentario
 
 
+@app.post(
+    "/incidencias/{identificador}/csat",
+    response_model=schemas.EncuestaCSATRespuesta,
+    status_code=status.HTTP_201_CREATED,
+    summary="Valorar la resolución de una incidencia (encuesta CSAT)",
+)
+def valorar_incidencia(
+    identificador: str,
+    datos: schemas.EncuestaCSATCrear,
+    db: Session = Depends(get_db),
+    usuario: models.Usuario = Depends(auth.get_current_user),
+):
+    incidencia = _buscar_visible(db, identificador, usuario)
+
+    if incidencia.solicitante_id != usuario.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Solo el solicitante de la incidencia puede valorar la resolución",
+        )
+    if incidencia.estado not in ("Resuelto", "Cerrado"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solo se puede valorar una incidencia resuelta o cerrada",
+        )
+    if incidencia.csat_puntuacion is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esta incidencia ya tiene una valoración",
+        )
+
+    incidencia.csat_puntuacion = datos.puntuacion
+    incidencia.csat_comentario = (datos.comentario or "").strip() or None
+    incidencia.csat_en = datetime.now()
+
+    auditoria.registrar_evento(
+        db,
+        incidencia.id,
+        usuario.id,
+        accion="csat",
+        campo="csat_puntuacion",
+        valor_nuevo=str(datos.puntuacion),
+        es_interno=True,
+    )
+    db.commit()
+    db.refresh(incidencia)
+
+    return {
+        "puntuacion": incidencia.csat_puntuacion,
+        "comentario": incidencia.csat_comentario,
+        "creada_en": incidencia.csat_en,
+    }
+
+
 @app.get(
     "/incidencias/{identificador}/comentarios",
     response_model=list[schemas.ComentarioRespuesta],

@@ -917,6 +917,10 @@
       return usuario && usuario.rol === "administrador";
     }
 
+    function esSolicitante() {
+      return usuario && usuario.rol === "solicitante";
+    }
+
     function esSupervision() {
       return usuario && (usuario.rol === "supervisor" || usuario.rol === "administrador");
     }
@@ -1645,6 +1649,7 @@
         ${tarjetaKpi("MTTA", valor(kpis.mtta_minutos, " min"))}
         ${tarjetaKpi("MTTR", valor(kpis.mttr_horas, " h"))}
         ${tarjetaKpi("FCR", valor(kpis.fcr_pct, " %"))}
+        ${tarjetaKpi("CSAT", valor(kpis.csat_media, ` / 5 (${kpis.csat_respuestas})`))}
       </div>`;
     }
 
@@ -1846,6 +1851,39 @@
         ? `<div class="detalle-bloque"><h3>Nota de resolución</h3><p class="detalle-desc">${esc(ticket.nota_resolucion)}</p></div>`
         : "";
 
+      let encuesta = "";
+      if (esSolicitante() && ["Resuelto", "Cerrado"].includes(ticket.estado)) {
+        if (ticket.csat_puntuacion) {
+          const estrellas =
+            "★".repeat(ticket.csat_puntuacion) +
+            "☆".repeat(5 - ticket.csat_puntuacion);
+          encuesta = `
+            <div class="detalle-bloque">
+              <h3>Tu valoración</h3>
+              <p class="detalle-desc">${estrellas} (${ticket.csat_puntuacion}/5)</p>
+              ${ticket.csat_comentario ? `<p class="detalle-desc">${esc(ticket.csat_comentario)}</p>` : ""}
+            </div>`;
+        } else {
+          encuesta = `
+            <div class="detalle-bloque">
+              <h3>¿Cómo valorarías la resolución?</h3>
+              <form onsubmit="enviarCsat(event)">
+                <div class="asignacion">
+                  <select id="csatPuntuacion" aria-label="Puntuación de 1 a 5">
+                    <option value="5">5 · Excelente</option>
+                    <option value="4">4 · Bien</option>
+                    <option value="3">3 · Normal</option>
+                    <option value="2">2 · Mal</option>
+                    <option value="1">1 · Muy mal</option>
+                  </select>
+                  <input id="csatComentario" maxlength="1000" placeholder="Comentario (opcional)">
+                  <button type="submit">Enviar valoración</button>
+                </div>
+              </form>
+            </div>`;
+        }
+      }
+
       const adjuntosHtml = adjuntos.length
         ? adjuntos.map((a) => `
             <div class="adjunto">
@@ -1880,6 +1918,7 @@
         </div>
         <p class="detalle-desc">${esc(ticket.descripcion) || '<span class="desc">Sin descripción</span>'}</p>
         ${nota}
+        ${encuesta}
         ${clasificacion}
         <div class="detalle-bloque">
           <h3>Adjuntos</h3>
@@ -1913,6 +1952,23 @@
         await cargarCatalogos();
         await cargarDetalle();
         await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function enviarCsat(evento) {
+      evento.preventDefault();
+      try {
+        await api(`${API}/${detalleId}/csat`, {
+          method: "POST",
+          body: JSON.stringify({
+            puntuacion: Number($("csatPuntuacion").value),
+            comentario: $("csatComentario").value.trim() || null
+          })
+        });
+        mensajeDetalle("Gracias por tu valoración", true);
+        await cargarDetalle();
       } catch (error) {
         if (error.message !== "401") mensajeDetalle(error.message);
       }

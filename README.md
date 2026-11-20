@@ -52,7 +52,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 
 ### Reportes y KPIs
 - **Resumen en tiempo real** (solo supervisor/administrador): tickets creados y resueltos hoy, abiertos, sin asignar, SLA en riesgo/vencido/pausado y distribución por estado, prioridad, canal y categoría.
-- **KPIs históricos** filtrables por rango de fechas, grupo, técnico, solicitante y departamento: % de cumplimiento de SLA, **MTTA** (primera asignación), **MTTR** (resolución) y **FCR** (resuelto con una sola interacción pública del técnico).
+- **KPIs históricos** filtrables por rango de fechas, grupo, técnico, solicitante y departamento: % de cumplimiento de SLA, **MTTA** (primera asignación), **MTTR** (resolución), **FCR** (resuelto con una sola interacción pública del técnico) y **CSAT** (media de las valoraciones de 1 a 5 que deja el solicitante al resolverse el ticket).
 - **Exportación a CSV** del listado filtrado (con BOM UTF-8 para Excel), incluyendo datos de ticket, clasificación, responsables, fechas y estado del SLA.
 
 ### Usuarios y control de acceso (RBAC)
@@ -78,7 +78,7 @@ Sistema de gestión de incidencias IT inspirado en la herramienta interna de un 
 - **SQLite** en local y **PostgreSQL** (`psycopg`) en producción
 - **bcrypt** y **PyJWT**: contraseñas y autenticación
 - **HTML, CSS y JavaScript** sin frameworks para la interfaz
-- **pytest**: 219 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
+- **pytest**: 233 tests automáticos (incidencias, autenticación, permisos, asignación, reglas ITIL, notas internas, seguridad, auditoría inmutable, SLA, notificaciones, adjuntos, correo, categorías, grupos, automatización, base de conocimiento, reportes y migraciones)
 - **GitHub Actions**: ejecuta los tests en cada subida
 - **Docker**: contenedor basado en `python:3.13-slim`
 - **Render**: despliegue en la nube
@@ -110,6 +110,7 @@ Todas las rutas de `/incidencias` requieren un token (`Authorization: Bearer <to
 | Actualizar estado, tipo, impacto, urgencia, categoría o grupo | `PATCH /incidencias/{id_o_codigo}` | `agente`, `supervisor`, `administrador` |
 | Reevaluar reglas de automatización | `POST /incidencias/{id_o_codigo}/aplicar-reglas` | `administrador` |
 | Resolver (con nota obligatoria) | `POST /incidencias/{id_o_codigo}/resolver` | `agente`, `supervisor`, `administrador` |
+| Valorar la resolución (CSAT 1-5) | `POST /incidencias/{id_o_codigo}/csat` | Solicitante dueño, con el ticket resuelto |
 | Añadir comentario (público o nota interna) | `POST /incidencias/{id_o_codigo}/comentarios` | Autenticado (nota interna solo técnicos) |
 | Listar hilo de comentarios | `GET /incidencias/{id_o_codigo}/comentarios` | Autenticado (solicitante no ve notas internas) |
 | Consultar historial de auditoría | `GET /incidencias/{id_o_codigo}/historial` | Autenticado (solicitante no ve eventos internos) |
@@ -316,6 +317,8 @@ Es un proyecto de aprendizaje basado en una especificación de requisitos de un 
 - [x] Dashboard con KPIs (SLA, MTTA, MTTR, FCR) y exportación a CSV
 - [x] Migraciones con Alembic
 - [x] Paginación (`limite`/`desplazamiento` con `X-Total-Count`) y búsqueda por texto en título, descripción y código legible
+- [x] Encuesta de satisfacción (CSAT) y su KPI en los reportes
+- [ ] Exportación a XLSX además de CSV
 - [ ] Búsqueda full-text indexada (PostgreSQL `tsvector` / Meilisearch)
 
 ## Autor

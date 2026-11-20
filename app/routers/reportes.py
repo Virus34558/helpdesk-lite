@@ -287,6 +287,15 @@ def kpis(
         )
         fcr = round(resueltos_fcr * 100 / len(resueltos), 2)
 
+    valoraciones = [
+        incidencia.csat_puntuacion
+        for incidencia in tickets
+        if incidencia.csat_puntuacion is not None
+    ]
+    csat_media = (
+        round(sum(valoraciones) / len(valoraciones), 2) if valoraciones else None
+    )
+
     return schemas.KpisReporte(
         desde=desde,
         hasta=hasta,
@@ -296,6 +305,8 @@ def kpis(
         mtta_minutos=mtta,
         mttr_horas=mttr,
         fcr_pct=fcr,
+        csat_respuestas=len(valoraciones),
+        csat_media=csat_media,
     )
 
 

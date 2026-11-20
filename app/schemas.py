@@ -336,6 +336,8 @@ class IncidenciaRespuesta(BaseModel):
     creada_en: datetime
     actualizada_en: datetime
     resuelta_en: datetime | None
+    csat_puntuacion: int | None = None
+    csat_comentario: str | None = None
 
     # Métricas y temporizadores de SLA
     sla_limite_primera_respuesta: datetime | None = None
@@ -459,3 +461,16 @@ class KpisReporte(BaseModel):
     mtta_minutos: float | None
     mttr_horas: float | None
     fcr_pct: float | None
+    csat_respuestas: int = 0
+    csat_media: float | None = None
+
+
+class EncuestaCSATCrear(BaseModel):
+    puntuacion: int = Field(ge=1, le=5)
+    comentario: str | None = Field(default=None, max_length=1000)
+
+
+class EncuestaCSATRespuesta(BaseModel):
+    puntuacion: int
+    comentario: str | None
+    creada_en: datetime
