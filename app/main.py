@@ -21,6 +21,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy import and_, func, or_, text
 from sqlalchemy.orm import Session
 
@@ -85,6 +86,12 @@ app.include_router(conocimiento_router.router)
 app.include_router(reportes_router.router)
 app.include_router(ingesta_router.router)
 app.include_router(macros_router.router)
+
+app.mount(
+    "/static",
+    StaticFiles(directory=Path(__file__).parent / "static"),
+    name="static",
+)
 
 # Quien puede gestionar incidencias (cambiar estado, impacto, asignar, resolver...)
 solo_gestores = auth.require_roles(

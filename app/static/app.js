@@ -1,0 +1,1744 @@
+    const API = "/incidencias";
+
+    // Mismas transiciones que el backend (app/reglas.py). El servidor es quien manda;
+    // esto solo evita ofrecer opciones que seguro darian error.
+    const TRANSICIONES = {
+      "Nuevo": ["En progreso", "Cancelado"],
+      "En progreso": ["Pendiente de usuario", "Pendiente de tercero", "Resuelto", "Cancelado"],
+      "Pendiente de usuario": ["En progreso", "Resuelto", "Cancelado"],
+      "Pendiente de tercero": ["En progreso", "Resuelto", "Cancelado"],
+      "Resuelto": ["En progreso", "Cerrado"],
+      "Cerrado": [],
+      "Cancelado": []
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    const TEXTO_SLA = {
+      en_tiempo: "En tiempo",
+      en_riesgo: "En riesgo",
+      vencido: "Vencido",
+      pausado: "Pausado",
+      cumplido: "Cumplido"
+    };
+
+    let token = sessionStorage.getItem("token");
+    let usuario = null;
+    try { usuario = JSON.parse(sessionStorage.getItem("usuario")); } catch (e) { }
+    let modoRegistro = false;
+    let detalleId = null;
+    let detalleVersion = null;
+    let tecnicos = null;
+    let adjuntosDetalle = [];
+    let categorias = [];
+    let grupos = [];
+    let macros = [];
+    let reglasConfig = [];
+    let articuloActual = null;
+    let articuloEditandoId = null;
+    let temporizadorSugerencias = null;
+    let temporizadorBusquedaConocimiento = null;
+
+    // Evita que un texto malicioso se ejecute como HTML (XSS)
+    function esc(texto) {
+      const div = document.createElement("div");
+      div.textContent = texto ?? "";
+      return div.innerHTML;
+    }
+
+    function formatearFecha(iso) {
+      return new Date(iso).toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" });
+    }
+
+    function formatearBytes(bytes) {
+      if (!bytes) return "0 B";
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    function badgeSla(estadoSla, limite) {
+      const estado = estadoSla || "en_tiempo";
+      const vence = limite
+        ? `<div class="desc">${formatearFecha(limite)}</div>`
+        : "";
+      return `<span class="etiqueta sla-${esc(estado)}">${esc(TEXTO_SLA[estado] || estado)}</span>${vence}`;
+    }
+
+    function esGestor() {
+      return usuario && usuario.rol !== "solicitante";
+    }
+
+    function esAdmin() {
+      return usuario && usuario.rol === "administrador";
+    }
+
+    function esSolicitante() {
+      return usuario && usuario.rol === "solicitante";
+    }
+
+    function esSupervision() {
+      return usuario && (usuario.rol === "supervisor" || usuario.rol === "administrador");
+    }
+
+    function nombreCategoria(id) {
+      const categoria = categorias.find((c) => c.id === id);
+      return categoria ? categoria.nombre : "Sin categoría";
+    }
+
+    function nombreGrupo(id) {
+      const grupo = grupos.find((g) => g.id === id);
+      return grupo ? grupo.nombre : "Sin grupo";
+    }
+
+    function opcionesCategorias(seleccionada, todas = false) {
+      const inicial = todas
+        ? '<option value="">Todas las categorías</option>'
+        : '<option value="">Sin categoría</option>';
+      return inicial + categorias.map((c) =>
+        `<option value="${c.id}" ${String(c.id) === String(seleccionada) ? "selected" : ""}>${esc(c.nombre)}</option>`
+      ).join("");
+    }
+
+    function opcionesGrupos(seleccionado, todos = false) {
+      const inicial = todos
+        ? '<option value="">Todos los grupos</option>'
+        : '<option value="">Sin grupo</option>';
+      return inicial + grupos.map((g) =>
+        `<option value="${g.id}" ${String(g.id) === String(seleccionado) ? "selected" : ""}>${esc(g.nombre)}</option>`
+      ).join("");
+    }
+
+    function opcionesTecnicos(seleccionado, idsPermitidos = null) {
+      let lista = tecnicos || [];
+      if (idsPermitidos) {
+        lista = lista.filter((t) => idsPermitidos.includes(t.id));
+      }
+      return '<option value="">Sin asignar</option>' + lista.map((t) =>
+        `<option value="${t.id}" ${String(t.id) === String(seleccionado) ? "selected" : ""}>${esc(t.nombre_completo)} (${esc(t.rol)})</option>`
+      ).join("");
+    }
+
+    function mostrarMensaje(texto, ok = false) {
+      const caja = $("mensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    function ocultarMensaje() {
+      $("mensaje").hidden = true;
+    }
+
+    function textoError(datos) {
+      if (!datos || !datos.detail) return "Ha ocurrido un error. Inténtalo de nuevo.";
+      if (typeof datos.detail === "string") return datos.detail;
+      return datos.detail.map((d) => d.msg).join(". ");
+    }
+
+    // Todas las llamadas a la API pasan por aqui: añade el token y gestiona errores
+    async function api(url, opciones = {}, completo = false) {
+      const cabeceras = {};
+      if (!(opciones.body instanceof FormData)) {
+        cabeceras["Content-Type"] = "application/json";
+      }
+      if (token) cabeceras.Authorization = "Bearer " + token;
+      const respuesta = await fetch(url, { ...opciones, headers: cabeceras });
+      let datos = null;
+      try { datos = await respuesta.json(); } catch (e) { }
+      if (respuesta.status === 401 && token) {
+        cerrarSesion("Tu sesión ha caducado. Entra de nuevo.");
+        throw new Error("401");
+      }
+      if (!respuesta.ok) throw new Error(textoError(datos));
+      return completo ? { datos, respuesta } : datos;
+    }
+
+    // ---------- Sesión ----------
+    function guardarSesion(datos) {
+      token = datos.access_token;
+      usuario = datos.usuario;
+      sessionStorage.setItem("token", token);
+      sessionStorage.setItem("usuario", JSON.stringify(usuario));
+    }
+
+    function cerrarSesion(aviso) {
+      token = null;
+      usuario = null;
+      tecnicos = null;
+      categorias = [];
+      grupos = [];
+      reglasConfig = [];
+      articuloActual = null;
+      articuloEditandoId = null;
+      $("btnConocimiento").hidden = true;
+      $("btnReportes").hidden = true;
+      cerrarConocimiento();
+      cerrarReportes();
+      sessionStorage.removeItem("token");
+      sessionStorage.removeItem("usuario");
+      cerrarDetalle();
+      mostrarAcceso();
+      if (aviso) mostrarMensaje(aviso);
+    }
+
+    function mostrarAcceso() {
+      ocultarMensaje();
+      $("vistaApp").hidden = true;
+      $("sesion").hidden = true;
+      $("vistaAcceso").hidden = false;
+      actualizarModo();
+    }
+
+    async function mostrarApp() {
+      ocultarMensaje();
+      $("vistaAcceso").hidden = true;
+      $("vistaApp").hidden = false;
+      $("sesion").hidden = false;
+      $("btnConocimiento").hidden = false;
+      $("btnReportes").hidden = !esSupervision();
+      $("btnConfig").hidden = !esAdmin();
+      ocultarSugerencias();
+      $("usuarioInfo").textContent = `${usuario.nombre_completo} (${usuario.rol})`;
+      $("camposGestor").hidden = !esGestor();
+      await cargarCatalogos();
+      cargar();
+      cargarNotificaciones();
+    }
+
+    async function cargarCatalogos() {
+      try {
+        const promesas = [api("/categorias")];
+        if (esGestor()) promesas.push(api("/grupos"), api("/macros"));
+        const [listaCategorias, listaGrupos, listaMacros] = await Promise.all(promesas);
+        categorias = listaCategorias;
+        grupos = listaGrupos || [];
+        macros = listaMacros || [];
+        pintarSelectsCatalogo();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    }
+
+    function pintarSelectsCatalogo() {
+      $("categoria").innerHTML = opcionesCategorias($("categoria").value);
+      $("grupoAsignado").innerHTML = opcionesGrupos($("grupoAsignado").value);
+      $("filtroCategoria").innerHTML = opcionesCategorias($("filtroCategoria").value, true);
+      $("filtroGrupo").innerHTML = opcionesGrupos($("filtroGrupo").value, true);
+      $("filtroGrupo").hidden = !esGestor();
+
+      if ($("nuevaCategoriaPadre")) {
+        $("nuevaCategoriaPadre").innerHTML =
+          '<option value="">Sin padre</option>' +
+          categorias.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join("");
+      }
+      if ($("reglaCategoria")) {
+        $("reglaCategoria").innerHTML =
+          '<option value="">Cualquiera</option>' +
+          categorias.map((c) => `<option value="${c.id}">${esc(c.nombre)}</option>`).join("");
+      }
+      if ($("reglaGrupo")) {
+        $("reglaGrupo").innerHTML =
+          '<option value="">Sin cambio</option>' +
+          grupos.map((g) => `<option value="${g.id}">${esc(g.nombre)}</option>`).join("");
+      }
+      if ($("categoriaConocimiento")) {
+        $("categoriaConocimiento").innerHTML = opcionesCategorias(
+          $("categoriaConocimiento").value,
+          true
+        );
+      }
+      if ($("articuloCategoria")) {
+        $("articuloCategoria").innerHTML = opcionesCategorias($("articuloCategoria").value);
+      }
+    }
+
+    function actualizarModo() {
+      $("tituloAcceso").textContent = modoRegistro ? "Crear cuenta" : "Iniciar sesión";
+      $("lblNombre").hidden = !modoRegistro;
+      $("nombre").required = modoRegistro;
+      $("btnAcceso").textContent = modoRegistro ? "Registrarme" : "Entrar";
+      $("cambiarModo").textContent = modoRegistro
+        ? "¿Ya tienes cuenta? Inicia sesión"
+        : "¿No tienes cuenta? Regístrate";
+      $("password").autocomplete = modoRegistro ? "new-password" : "current-password";
+    }
+
+    $("cambiarModo").addEventListener("click", (evento) => {
+      evento.preventDefault();
+      modoRegistro = !modoRegistro;
+      ocultarMensaje();
+      actualizarModo();
+    });
+
+    $("btnSalir").addEventListener("click", () => cerrarSesion());
+
+    $("formAcceso").addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+      ocultarMensaje();
+      const email = $("email").value.trim();
+      const password = $("password").value;
+      try {
+        if (modoRegistro) {
+          await api("/auth/registro", {
+            method: "POST",
+            body: JSON.stringify({ email, nombre_completo: $("nombre").value.trim(), password })
+          });
+        }
+        const datos = await api("/auth/login", {
+          method: "POST",
+          body: JSON.stringify({ email, password })
+        });
+        guardarSesion(datos);
+        evento.target.reset();
+        mostrarApp();
+      } catch (error) {
+        mostrarMensaje(error.message);
+      }
+    });
+
+    // ---------- Incidencias ----------
+    let pagina = 0;
+    const POR_PAGINA = 25;
+    let totalIncidencias = 0;
+
+    async function cargar() {
+      const params = new URLSearchParams();
+      if ($("filtroEstado").value) params.set("estado", $("filtroEstado").value);
+      if ($("filtroPrioridad").value) params.set("prioridad", $("filtroPrioridad").value);
+      if ($("filtroSla").value === "vencido") params.set("sla_vencido", "true");
+      if ($("filtroSla").value === "en_riesgo") params.set("sla_en_riesgo", "true");
+      if ($("filtroCategoria").value) params.set("categoria_id", $("filtroCategoria").value);
+      if ($("filtroGrupo").value) params.set("grupo_asignado_id", $("filtroGrupo").value);
+      const texto = $("filtroTexto").value.trim();
+      if (texto) params.set("q", texto);
+      params.set("limite", POR_PAGINA);
+      params.set("desplazamiento", pagina * POR_PAGINA);
+      try {
+        const { datos, respuesta } = await api(`${API}?${params}`, {}, true);
+        totalIncidencias = Number(respuesta.headers.get("X-Total-Count") || 0);
+        pintar(datos);
+        pintarPaginacion();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    }
+
+    function pintarPaginacion() {
+      const desde = totalIncidencias === 0 ? 0 : pagina * POR_PAGINA + 1;
+      const hasta = Math.min((pagina + 1) * POR_PAGINA, totalIncidencias);
+      $("paginaInfo").textContent = `${desde}-${hasta} de ${totalIncidencias}`;
+      $("paginaAnterior").disabled = pagina === 0;
+      $("paginaSiguiente").disabled = hasta >= totalIncidencias;
+    }
+
+    function cambiarPagina(delta) {
+      const ultima = Math.max(0, Math.ceil(totalIncidencias / POR_PAGINA) - 1);
+      const destino = pagina + delta;
+      if (destino < 0 || destino > ultima) return;
+      pagina = destino;
+      cargar();
+    }
+
+    function reiniciarPagina() {
+      pagina = 0;
+    }
+
+    function pintar(lista) {
+      const tabla = $("tabla");
+      const gestor = esGestor();
+
+      if (lista.length === 0) {
+        tabla.innerHTML = '<tr><td colspan="8" class="vacio">No hay incidencias</td></tr>';
+        return;
+      }
+
+      tabla.innerHTML = lista.map((i) => {
+        const destinos = TRANSICIONES[i.estado] || [];
+        // "Resuelto" no va en el desplegable: se hace con el boton Resolver (pide la nota)
+        const opciones = destinos.filter((e) => e !== "Resuelto");
+
+        let estadoHtml;
+        if (gestor && opciones.length > 0) {
+          estadoHtml = `<select onchange="cambiarEstado(${i.id}, this.value)">` +
+            [i.estado, ...opciones]
+              .map((e) => `<option ${e === i.estado ? "selected" : ""}>${esc(e)}</option>`)
+              .join("") +
+            `</select>`;
+        } else {
+          estadoHtml = `<span class="etiqueta estado">${esc(i.estado)}</span>`;
+        }
+
+        let acciones = `<button class="terciario" onclick="abrirDetalle(${i.id})">Ver</button>`;
+        if (gestor && destinos.includes("Resuelto")) {
+          acciones += ` <button class="secundario" onclick="resolver(${i.id})">Resolver</button>`;
+        }
+
+        const clasificacion = [
+          i.categoria_id ? nombreCategoria(i.categoria_id) : "",
+          i.grupo_asignado_id ? nombreGrupo(i.grupo_asignado_id) : ""
+        ].filter(Boolean).join(" · ");
+
+        return `
+          <tr>
+            <td>${i.id}</td>
+            <td><div class="titulo-fila">${esc(i.titulo)}</div><div class="desc">${esc(clasificacion || "Sin clasificar")}</div></td>
+            <td data-columna="Prioridad"><span class="etiqueta p${esc(i.prioridad.charAt(1))}">${esc(i.prioridad)}</span></td>
+            <td class="pequeno" data-columna="Impacto">${esc(i.impacto)} / ${esc(i.urgencia)}</td>
+            <td data-columna="Estado">${estadoHtml}</td>
+            <td data-columna="SLA">${badgeSla(i.estado_sla, i.sla_limite_resolucion)}</td>
+            <td data-columna="Creada">${formatearFecha(i.creada_en)}</td>
+            <td data-columna="">${acciones}</td>
+          </tr>`;
+      }).join("");
+    }
+
+    // ---------- Notificaciones ----------
+    async function cargarNotificaciones() {
+      try {
+        const lista = await api("/notificaciones");
+        pintarNotificaciones(lista);
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    }
+
+    function pintarNotificaciones(lista) {
+      const seccion = $("seccionNotificaciones");
+      const contador = $("contadorNotificaciones");
+      if (!lista.length) {
+        seccion.hidden = true;
+        $("listaNotificaciones").innerHTML = "";
+        return;
+      }
+
+      const noLeidas = lista.filter((n) => !n.leida).length;
+      seccion.hidden = false;
+      contador.hidden = noLeidas === 0;
+      contador.textContent = noLeidas ? `${noLeidas} sin leer` : "";
+      $("listaNotificaciones").innerHTML = lista.map((n) => `
+        <div class="comentario ${n.leida ? "" : "interno"}">
+          <div class="comentario-meta">
+            <span>${formatearFecha(n.creado_en)}</span>
+            ${n.leida ? "" : '<span class="etiqueta p1">Nueva</span>'}
+          </div>
+          <div class="comentario-texto">${esc(n.mensaje)}</div>
+          <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="terciario" onclick="verDesdeNotificacion(${n.id}, ${n.incidencia_id})">Ver ticket</button>
+            ${n.leida ? "" : `<button class="terciario" onclick="marcarNotificacionLeida(${n.id})">Marcar leída</button>`}
+          </div>
+        </div>`).join("");
+    }
+
+    async function marcarNotificacionLeida(id) {
+      try {
+        await api(`/notificaciones/${id}/leer`, { method: "POST" });
+        await cargarNotificaciones();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    }
+
+    async function verDesdeNotificacion(notificacionId, incidenciaId) {
+      try {
+        await api(`/notificaciones/${notificacionId}/leer`, { method: "POST" });
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+      await abrirDetalle(incidenciaId);
+      cargarNotificaciones();
+    }
+
+    async function cambiarEstado(id, estado) {
+      try {
+        await api(`${API}/${id}`, { method: "PATCH", body: JSON.stringify({ estado }) });
+        ocultarMensaje();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+      cargar();
+    }
+
+    async function resolver(id) {
+      const nota = prompt("Nota de resolución (causa y solución, mínimo 5 caracteres):");
+      if (nota === null) return;
+      try {
+        await api(`${API}/${id}/resolver`, {
+          method: "POST",
+          body: JSON.stringify({ nota_resolucion: nota.trim() })
+        });
+        ocultarMensaje();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+      cargar();
+    }
+
+    // ---------- Base de conocimiento ----------
+    function mensajeConocimiento(texto, ok = false) {
+      const caja = $("conocimientoMensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    function ocultarMensajeConocimiento() {
+      $("conocimientoMensaje").hidden = true;
+    }
+
+    function abrirConocimiento() {
+      if (!token) return;
+      ocultarMensajeConocimiento();
+      $("modalConocimiento").hidden = false;
+      $("buscarConocimiento").value = "";
+      $("categoriaConocimiento").value = "";
+      $("btnNuevoArticulo").hidden = !esGestor();
+      articuloActual = null;
+      articuloEditandoId = null;
+      volverListaConocimiento();
+      cargarConocimiento();
+    }
+
+    function cerrarConocimiento() {
+      if ($("modalConocimiento")) $("modalConocimiento").hidden = true;
+      if ($("listaConocimiento")) $("listaConocimiento").innerHTML = "";
+      if ($("detalleArticulo")) $("detalleArticulo").innerHTML = "";
+      articuloActual = null;
+      articuloEditandoId = null;
+    }
+
+    function volverListaConocimiento() {
+      $("vistaConocimientoLista").hidden = false;
+      $("vistaConocimientoDetalle").hidden = true;
+      $("vistaConocimientoEditor").hidden = true;
+    }
+
+    async function cargarConocimiento() {
+      const params = new URLSearchParams();
+      const texto = $("buscarConocimiento").value.trim();
+      if (texto) params.set("q", texto);
+      if ($("categoriaConocimiento").value) {
+        params.set("categoria_id", $("categoriaConocimiento").value);
+      }
+      try {
+        const lista = await api(`/conocimiento?${params}`);
+        pintarListaConocimiento(lista);
+      } catch (error) {
+        if (error.message !== "401") mensajeConocimiento(error.message);
+      }
+    }
+
+    function buscarConocimientoConRetraso() {
+      clearTimeout(temporizadorBusquedaConocimiento);
+      temporizadorBusquedaConocimiento = setTimeout(cargarConocimiento, 300);
+    }
+
+    function pintarListaConocimiento(lista) {
+      const caja = $("listaConocimiento");
+      if (!lista.length) {
+        caja.innerHTML = '<p class="vacio">Sin artículos</p>';
+        return;
+      }
+      caja.innerHTML = lista.map((a) => {
+        const clasificacion = [
+          a.es_publico ? "Público" : "Interno",
+          a.categoria_id ? nombreCategoria(a.categoria_id) : ""
+        ].filter(Boolean).join(" · ");
+        return `
+          <div class="adjunto">
+            <div class="adjunto-info">
+              <strong>${esc(a.titulo)}</strong>
+              <div class="desc">${esc(clasificacion)} · ${formatearFecha(a.actualizado_en)}</div>
+              ${a.resumen ? `<div class="desc">${esc(a.resumen)}</div>` : ""}
+            </div>
+            <button type="button" class="terciario" onclick="verArticulo(${a.id})">Ver</button>
+          </div>`;
+      }).join("");
+    }
+
+    async function verArticulo(id) {
+      $("vistaConocimientoLista").hidden = true;
+      $("vistaConocimientoEditor").hidden = true;
+      $("vistaConocimientoDetalle").hidden = false;
+      $("detalleArticulo").innerHTML = '<p class="vacio">Cargando…</p>';
+      try {
+        const articulo = await api(`/conocimiento/${id}`);
+        articuloActual = articulo;
+        pintarDetalleArticulo(articulo);
+      } catch (error) {
+        volverListaConocimiento();
+        if (error.message !== "401") mensajeConocimiento(error.message);
+      }
+    }
+
+    async function abrirArticulo(id) {
+      $("modalConocimiento").hidden = false;
+      ocultarMensajeConocimiento();
+      await verArticulo(id);
+    }
+
+    function pintarDetalleArticulo(articulo) {
+      const clasificacion = [
+        articulo.es_publico ? "Público" : "Interno",
+        articulo.categoria_id ? nombreCategoria(articulo.categoria_id) : ""
+      ].filter(Boolean).join(" · ");
+      const acciones = esGestor()
+        ? `<div class="asignacion" style="margin-top:16px">
+             <button type="button" onclick="editarArticulo(${articulo.id})">Editar</button>
+             ${esAdmin() ? `<button type="button" class="terciario" onclick="eliminarArticulo(${articulo.id})">Eliminar</button>` : ""}
+           </div>`
+        : "";
+      $("detalleArticulo").innerHTML = `
+        <h2 style="margin-bottom:4px">${esc(articulo.titulo)}</h2>
+        <div class="desc">${esc(clasificacion)} · ${formatearFecha(articulo.actualizado_en)}</div>
+        <p class="detalle-desc" style="margin-top:14px">${esc(articulo.contenido)}</p>
+        ${acciones}`;
+    }
+
+    function nuevoArticulo() {
+      articuloActual = null;
+      articuloEditandoId = null;
+      $("formArticulo").reset();
+      $("articuloPublico").checked = true;
+      $("vistaConocimientoLista").hidden = true;
+      $("vistaConocimientoDetalle").hidden = true;
+      $("vistaConocimientoEditor").hidden = false;
+      ocultarMensajeConocimiento();
+      $("articuloTitulo").focus();
+    }
+
+    function editarArticulo(id) {
+      if (!articuloActual || articuloActual.id !== id) return;
+      articuloEditandoId = id;
+      $("articuloTitulo").value = articuloActual.titulo;
+      $("articuloResumen").value = articuloActual.resumen || "";
+      $("articuloCategoria").value = articuloActual.categoria_id ?? "";
+      $("articuloContenido").value = articuloActual.contenido;
+      $("articuloPublico").checked = articuloActual.es_publico;
+      $("vistaConocimientoDetalle").hidden = true;
+      $("vistaConocimientoEditor").hidden = false;
+      ocultarMensajeConocimiento();
+      $("articuloTitulo").focus();
+    }
+
+    async function guardarArticulo(evento) {
+      evento.preventDefault();
+      const cuerpo = {
+        titulo: $("articuloTitulo").value.trim(),
+        contenido: $("articuloContenido").value,
+        resumen: $("articuloResumen").value.trim() || null,
+        categoria_id: $("articuloCategoria").value
+          ? Number($("articuloCategoria").value)
+          : null,
+        es_publico: $("articuloPublico").checked
+      };
+      try {
+        const guardado = articuloEditandoId
+          ? await api(`/conocimiento/${articuloEditandoId}`, {
+            method: "PATCH",
+            body: JSON.stringify(cuerpo)
+          })
+          : await api("/conocimiento", {
+            method: "POST",
+            body: JSON.stringify(cuerpo)
+          });
+        articuloActual = guardado;
+        articuloEditandoId = null;
+        mensajeConocimiento("Artículo guardado", true);
+        await cargarConocimiento();
+        $("vistaConocimientoEditor").hidden = true;
+        $("vistaConocimientoDetalle").hidden = false;
+        pintarDetalleArticulo(guardado);
+      } catch (error) {
+        if (error.message !== "401") mensajeConocimiento(error.message);
+      }
+    }
+
+    async function eliminarArticulo(id) {
+      if (!confirm("¿Eliminar este artículo de la base de conocimiento?")) return;
+      try {
+        await api(`/conocimiento/${id}`, { method: "DELETE" });
+        articuloActual = null;
+        mensajeConocimiento("Artículo eliminado", true);
+        await cargarConocimiento();
+        volverListaConocimiento();
+      } catch (error) {
+        if (error.message !== "401") mensajeConocimiento(error.message);
+      }
+    }
+
+    function programarSugerencias() {
+      clearTimeout(temporizadorSugerencias);
+      const texto = $("titulo").value.trim();
+      if (texto.length < 3) {
+        ocultarSugerencias();
+        return;
+      }
+      temporizadorSugerencias = setTimeout(() => buscarSugerencias(texto), 300);
+    }
+
+    async function buscarSugerencias(texto) {
+      try {
+        const lista = await api(
+          `/conocimiento/sugerencias?q=${encodeURIComponent(texto)}`
+        );
+        pintarSugerencias(lista);
+      } catch (error) {
+        if (error.message !== "401") ocultarSugerencias();
+      }
+    }
+
+    function pintarSugerencias(lista) {
+      const caja = $("sugerenciasConocimiento");
+      if (!lista.length) {
+        ocultarSugerencias();
+        return;
+      }
+      caja.hidden = false;
+      caja.innerHTML =
+        '<div class="desc">Quizá te ayude algún artículo:</div>' +
+        lista.map((a) => `
+          <div class="fila-sugerencia">
+            <span>${esc(a.titulo)}</span>
+            <button type="button" class="terciario" onclick="abrirArticulo(${a.id})">Ver artículo</button>
+          </div>`).join("");
+    }
+
+    function ocultarSugerencias() {
+      const caja = $("sugerenciasConocimiento");
+      if (!caja) return;
+      caja.hidden = true;
+      caja.innerHTML = "";
+    }
+
+    // ---------- Reportes y KPIs ----------
+    function mensajeReportes(texto, ok = false) {
+      const caja = $("reportesMensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    function ocultarMensajeReportes() {
+      $("reportesMensaje").hidden = true;
+    }
+
+    async function abrirReportes() {
+      if (!esSupervision()) return;
+      $("modalReportes").hidden = false;
+      ocultarMensajeReportes();
+      try {
+        if (!tecnicos) await cargarTecnicos();
+        pintarFiltrosReporte();
+        await cargarReportes();
+      } catch (error) {
+        if (error.message !== "401") mensajeReportes(error.message);
+      }
+    }
+
+    function cerrarReportes() {
+      if ($("modalReportes")) $("modalReportes").hidden = true;
+    }
+
+    function pintarFiltrosReporte() {
+      $("reporteGrupo").innerHTML = opcionesGrupos($("reporteGrupo").value, true);
+      const seleccionado = $("reporteAgente").value;
+      $("reporteAgente").innerHTML =
+        '<option value="">Todos los técnicos</option>' +
+        (tecnicos || []).map((t) =>
+          `<option value="${t.id}" ${String(t.id) === String(seleccionado) ? "selected" : ""}>${esc(t.nombre_completo)}</option>`
+        ).join("");
+    }
+
+    function paramsReporte() {
+      const params = new URLSearchParams();
+      if ($("reporteDesde").value) params.set("desde", $("reporteDesde").value);
+      if ($("reporteHasta").value) params.set("hasta", $("reporteHasta").value);
+      if ($("reporteGrupo").value) params.set("grupo_asignado_id", $("reporteGrupo").value);
+      if ($("reporteAgente").value) params.set("agente_asignado_id", $("reporteAgente").value);
+      return params;
+    }
+
+    async function cargarReportes() {
+      if (!esSupervision()) return;
+      try {
+        const [resumen, kpis] = await Promise.all([
+          api("/reportes/resumen"),
+          api(`/reportes/kpis?${paramsReporte()}`)
+        ]);
+        pintarResumenReportes(resumen);
+        pintarKpis(kpis);
+        pintarDistribuciones(resumen);
+        ocultarMensajeReportes();
+      } catch (error) {
+        if (error.message !== "401") mensajeReportes(error.message);
+      }
+    }
+
+    function tarjetaKpi(etiqueta, valor) {
+      return `<div class="kpi"><strong>${esc(valor)}</strong><span>${esc(etiqueta)}</span></div>`;
+    }
+
+    function pintarResumenReportes(resumen) {
+      $("resumenReportes").innerHTML = `<div class="kpis">
+        ${tarjetaKpi("Creados hoy", resumen.creados_hoy)}
+        ${tarjetaKpi("Resueltos hoy", resumen.resueltos_hoy)}
+        ${tarjetaKpi("Abiertos", resumen.abiertos)}
+        ${tarjetaKpi("Sin asignar", resumen.sin_asignar)}
+        ${tarjetaKpi("SLA en riesgo", resumen.sla_en_riesgo)}
+        ${tarjetaKpi("SLA vencido", resumen.sla_vencido)}
+        ${tarjetaKpi("SLA pausado", resumen.sla_pausado)}
+      </div>`;
+    }
+
+    function pintarKpis(kpis) {
+      const valor = (dato, sufijo) =>
+        dato === null || dato === undefined ? "—" : `${dato}${sufijo || ""}`;
+      $("kpisReportes").innerHTML = `<div class="kpis">
+        ${tarjetaKpi("Tickets creados", kpis.tickets_creados)}
+        ${tarjetaKpi("Tickets resueltos", kpis.tickets_resueltos)}
+        ${tarjetaKpi("Cumplimiento SLA", valor(kpis.cumplimiento_sla_pct, " %"))}
+        ${tarjetaKpi("MTTA", valor(kpis.mtta_minutos, " min"))}
+        ${tarjetaKpi("MTTR", valor(kpis.mttr_horas, " h"))}
+        ${tarjetaKpi("FCR", valor(kpis.fcr_pct, " %"))}
+        ${tarjetaKpi("CSAT", valor(kpis.csat_media, ` / 5 (${kpis.csat_respuestas})`))}
+      </div>`;
+    }
+
+    function bloqueDistribucion(titulo, items, etiqueta) {
+      const filas = (items || []).map((item) => `
+        <li><span>${esc(etiqueta ? etiqueta(item) : item.valor)}</span><span>${item.total}</span></li>
+      `).join("");
+      return `<div>
+        <strong>${esc(titulo)}</strong>
+        ${filas ? `<ul class="distribucion">${filas}</ul>` : '<p class="desc">Sin datos</p>'}
+      </div>`;
+    }
+
+    function pintarDistribuciones(resumen) {
+      $("distribucionReportes").innerHTML = `<div class="fila">
+        ${bloqueDistribucion("Por estado", resumen.por_estado)}
+        ${bloqueDistribucion("Por prioridad", resumen.por_prioridad)}
+        ${bloqueDistribucion("Por canal", resumen.por_canal)}
+        ${bloqueDistribucion("Por categoría", resumen.por_categoria, (item) => item.nombre)}
+      </div>`;
+    }
+
+    async function exportarIncidenciasCSV() {
+      const cabeceras = {};
+      if (token) cabeceras.Authorization = "Bearer " + token;
+      try {
+        const respuesta = await fetch(`/reportes/incidencias.csv?${paramsReporte()}`, {
+          headers: cabeceras
+        });
+        if (respuesta.status === 401 && token) {
+          cerrarSesion("Tu sesión ha caducado. Entra de nuevo.");
+          return;
+        }
+        if (!respuesta.ok) {
+          let datos = null;
+          try { datos = await respuesta.json(); } catch (e) { }
+          throw new Error(textoError(datos));
+        }
+        const blob = await respuesta.blob();
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement("a");
+        enlace.href = url;
+        enlace.download = "incidencias.csv";
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        if (error.message !== "401") mensajeReportes(error.message);
+      }
+    }
+
+    // ---------- Detalle del ticket ----------
+    function mensajeDetalle(texto, ok = false) {
+      const caja = $("detalleMensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    function ocultarMensajeDetalle() {
+      $("detalleMensaje").hidden = true;
+    }
+
+    async function cargarTecnicos() {
+      if (!tecnicos) tecnicos = await api("/auth/tecnicos");
+      return tecnicos;
+    }
+
+    async function abrirDetalle(id) {
+      detalleId = id;
+      ocultarMensajeDetalle();
+      $("modalDetalle").hidden = false;
+      $("detalleTitulo").textContent = "Cargando…";
+      $("detalleCodigo").textContent = "";
+      $("detalleContenido").innerHTML = '<p class="vacio">Cargando…</p>';
+      abrirPresencia(id);
+      try {
+        if (esGestor()) await cargarTecnicos();
+        await cargarDetalle();
+      } catch (error) {
+        if (error.message === "401") {
+          cerrarDetalle();
+        } else {
+          mensajeDetalle(error.message);
+          $("detalleContenido").innerHTML = "";
+        }
+      }
+    }
+
+    function cerrarDetalle() {
+      detalleId = null;
+      adjuntosDetalle = [];
+      cerrarPresencia();
+      if ($("modalDetalle")) $("modalDetalle").hidden = true;
+      if ($("detalleContenido")) $("detalleContenido").innerHTML = "";
+      if ($("detalleMensaje")) $("detalleMensaje").hidden = true;
+    }
+
+    async function cargarDetalle() {
+      if (detalleId === null) return;
+      const [ticket, comentarios, historial, adjuntos, observadores] = await Promise.all([
+        api(`${API}/${detalleId}`),
+        api(`${API}/${detalleId}/comentarios`),
+        api(`${API}/${detalleId}/historial`),
+        api(`${API}/${detalleId}/adjuntos`),
+        api(`${API}/${detalleId}/observadores`)
+      ]);
+      pintarDetalle(ticket, comentarios, historial, adjuntos, observadores);
+    }
+
+    function pintarDetalle(ticket, comentarios, historial, adjuntos, observadores = []) {
+      adjuntosDetalle = adjuntos;
+      detalleVersion = ticket.version;
+      $("detalleTitulo").textContent = ticket.titulo;
+      $("detalleCodigo").textContent = `${ticket.id_legible} · #${ticket.id}`;
+
+      const gestor = esGestor();
+      const editable = ticket.estado !== "Cerrado" && ticket.estado !== "Cancelado";
+      const agente = tecnicos
+        ? tecnicos.find((t) => t.id === ticket.agente_asignado_id)
+        : null;
+      const nombreAgente = ticket.agente_asignado_id
+        ? (agente ? agente.nombre_completo : `Técnico #${ticket.agente_asignado_id}`)
+        : "Sin asignar";
+      const grupoActual = grupos.find((g) => g.id === ticket.grupo_asignado_id);
+      const idsGrupo = grupoActual
+        ? grupoActual.miembros.map((m) => m.usuario_id)
+        : null;
+
+      let clasificacion = "";
+      if (gestor && editable) {
+        clasificacion = `
+          <div class="detalle-bloque">
+            <h3>Clasificación</h3>
+            <div class="asignacion">
+              <select id="detalleCategoria">${opcionesCategorias(ticket.categoria_id)}</select>
+              <select id="detalleGrupo">${opcionesGrupos(ticket.grupo_asignado_id)}</select>
+              <button type="button" onclick="guardarClasificacion()">Guardar clasificación</button>
+            </div>
+          </div>`;
+      }
+
+      let asignacion = "";
+      if (gestor) {
+        if (editable) {
+          const opciones = opcionesTecnicos(
+            ticket.agente_asignado_id,
+            idsGrupo
+          );
+          asignacion = `
+            <div class="detalle-bloque">
+              <h3>Asignación</h3>
+              <div class="asignacion">
+                <select id="detalleAgente">${opciones}</select>
+                <button type="button" onclick="guardarAsignacion()">Guardar asignación</button>
+              </div>
+              ${idsGrupo && idsGrupo.length === 0 ? '<p class="desc">El grupo asignado no tiene técnicos.</p>' : ""}
+            </div>`;
+        } else {
+          asignacion = `
+            <div class="detalle-bloque">
+              <h3>Asignación</h3>
+              <p class="desc">El ticket está ${esc(ticket.estado.toLowerCase())} y no se puede reasignar.</p>
+            </div>`;
+        }
+      }
+
+      const comentariosHtml = comentarios.length
+        ? comentarios.map((c) => `
+            <div class="comentario ${c.es_interno ? "interno" : ""}">
+              <div class="comentario-meta">
+                <strong>${esc(c.autor ? c.autor.nombre_completo : "Usuario")}</strong>
+                <span>${esc(c.autor ? c.autor.rol : "")}</span>
+                <span>${formatearFecha(c.creado_en)}</span>
+                ${c.es_interno ? '<span class="etiqueta p2">Nota interna</span>' : ""}
+              </div>
+              <div class="comentario-texto">${esc(c.contenido)}</div>
+            </div>`).join("")
+        : '<p class="vacio">Todavía no hay comentarios</p>';
+
+      const formulario = editable
+        ? `<form onsubmit="enviarComentario(event)">
+             ${
+               gestor && macros.length
+                 ? `<label>Plantilla
+                      <select id="macroComentario" onchange="insertarPlantilla()">
+                        <option value="">Sin plantilla</option>
+                        ${macros
+                          .map(
+                            (m) =>
+                              `<option value="${m.id}">${esc(m.nombre)}${m.es_interna ? " (interna)" : ""}</option>`
+                          )
+                          .join("")}
+                      </select>
+                    </label>`
+                 : ""
+             }
+             <label>Nuevo comentario
+               <textarea id="nuevoComentario" rows="3" required maxlength="5000" placeholder="${gestor ? "Escribe una respuesta o una nota interna" : "Escribe tu respuesta"}"></textarea>
+             </label>
+             ${gestor ? '<label class="inline"><input type="checkbox" id="comentarioInterno"> Nota interna (solo visible para el equipo técnico)</label>' : ""}
+             <button type="submit">Enviar comentario</button>
+           </form>`
+        : '<p class="desc">El ticket está cerrado y no admite nuevos comentarios.</p>';
+
+      const historialHtml = historial.length
+        ? historial.map((e) => {
+            const autor = e.usuario ? e.usuario.nombre_completo : "Sistema";
+            const cambio = e.campo
+              ? `${esc(e.campo)}: ${esc(e.valor_anterior ?? "—")} → ${esc(e.valor_nuevo ?? "—")}`
+              : esc(e.valor_nuevo ?? "");
+            return `<li><span class="fecha">${formatearFecha(e.creado_en)}</span> — <strong>${esc(autor)}</strong> — ${esc(e.accion.replaceAll("_", " "))}${cambio ? ` — ${cambio}` : ""}${e.es_interno ? ' <span class="etiqueta p2">interno</span>' : ""}</li>`;
+          }).join("")
+        : '<li class="desc">Sin eventos de auditoría</li>';
+
+      const nota = ticket.nota_resolucion
+        ? `<div class="detalle-bloque"><h3>Nota de resolución</h3><p class="detalle-desc">${esc(ticket.nota_resolucion)}</p></div>`
+        : "";
+
+      let encuesta = "";
+      if (esSolicitante() && ["Resuelto", "Cerrado"].includes(ticket.estado)) {
+        if (ticket.csat_puntuacion) {
+          const estrellas =
+            "★".repeat(ticket.csat_puntuacion) +
+            "☆".repeat(5 - ticket.csat_puntuacion);
+          encuesta = `
+            <div class="detalle-bloque">
+              <h3>Tu valoración</h3>
+              <p class="detalle-desc">${estrellas} (${ticket.csat_puntuacion}/5)</p>
+              ${ticket.csat_comentario ? `<p class="detalle-desc">${esc(ticket.csat_comentario)}</p>` : ""}
+            </div>`;
+        } else {
+          encuesta = `
+            <div class="detalle-bloque">
+              <h3>¿Cómo valorarías la resolución?</h3>
+              <form onsubmit="enviarCsat(event)">
+                <div class="asignacion">
+                  <select id="csatPuntuacion" aria-label="Puntuación de 1 a 5">
+                    <option value="5">5 · Excelente</option>
+                    <option value="4">4 · Bien</option>
+                    <option value="3">3 · Normal</option>
+                    <option value="2">2 · Mal</option>
+                    <option value="1">1 · Muy mal</option>
+                  </select>
+                  <input id="csatComentario" maxlength="1000" placeholder="Comentario (opcional)">
+                  <button type="submit">Enviar valoración</button>
+                </div>
+              </form>
+            </div>`;
+        }
+      }
+
+      const adjuntosHtml = adjuntos.length
+        ? adjuntos.map((a) => `
+            <div class="adjunto">
+              <div class="adjunto-info">
+                <strong>${esc(a.nombre_original)}</strong>
+                <div class="desc">${formatearBytes(a.tamano_bytes)} · ${formatearFecha(a.creado_en)}${a.es_interno ? ' · <span class="etiqueta p2">interno</span>' : ""}</div>
+              </div>
+              <button type="button" class="terciario" onclick="descargarAdjunto(${a.id})">Descargar</button>
+            </div>`).join("")
+        : '<p class="vacio">Sin adjuntos</p>';
+
+      const subidaAdjunto = editable
+        ? `<div class="asignacion" style="margin-top:10px">
+             <input type="file" id="archivoAdjunto">
+             ${gestor ? '<label class="inline"><input type="checkbox" id="adjuntoInterno"> Adjunto interno</label>' : ""}
+             <button type="button" onclick="subirAdjunto()">Subir adjunto</button>
+           </div>`
+        : "";
+
+      const listaObservadores = observadores.length
+        ? observadores
+            .map((o) => `
+              <div class="adjunto">
+                <div class="adjunto-info"><strong>${esc(o.email)}</strong></div>
+                ${editable ? `<button type="button" class="terciario" onclick="quitarObservador(${o.id})">Quitar</button>` : ""}
+              </div>`)
+            .join("")
+        : '<p class="vacio">Nadie en copia</p>';
+
+      const bloqueObservadores = `
+        <div class="detalle-bloque">
+          <h3>En copia</h3>
+          ${listaObservadores}
+          ${
+            editable
+              ? `<div class="asignacion" style="margin-top:10px">
+                   <input id="nuevoObservador" type="email" placeholder="correo@empresa.com">
+                   <button type="button" onclick="añadirObservador()">Añadir a la copia</button>
+                 </div>`
+              : ""
+          }
+        </div>`;
+
+      const bloqueFusion =
+        gestor && editable
+          ? `<div class="detalle-bloque">
+               <h3>Fusionar duplicados</h3>
+               <p class="desc">El ticket que indiques se cerrará y su conversación y adjuntos pasarán a este.</p>
+               <div class="asignacion">
+                 <input id="ticketDuplicado" placeholder="INC-2026-000123">
+                 <button type="button" onclick="fusionarEn()">Fusionar aquí</button>
+               </div>
+             </div>`
+          : "";
+
+      const bloqueAsistente =
+        gestor && editable
+          ? `<div class="detalle-bloque">
+               <h3>Asistente de clasificación</h3>
+               <p class="desc">Propone tipo, categoría, impacto y urgencia. No cambia nada hasta que tú lo apliques.</p>
+               <div id="sugerenciaIa" class="desc" aria-live="polite"></div>
+               <button type="button" class="terciario" onclick="pedirSugerencia()">Sugerir con IA</button>
+             </div>`
+          : "";
+
+      $("detalleContenido").innerHTML = `
+        <div class="detalle-meta">
+          <div><strong>Estado</strong><span class="etiqueta estado">${esc(ticket.estado)}</span></div>
+          <div><strong>Prioridad</strong><span class="etiqueta p${esc(ticket.prioridad.charAt(1))}">${esc(ticket.prioridad)}</span></div>
+          <div><strong>Tipo</strong>${esc(ticket.tipo)}</div>
+          <div><strong>Canal</strong>${esc(ticket.canal_origen)}</div>
+          <div><strong>Impacto / Urgencia</strong>${esc(ticket.impacto)} / ${esc(ticket.urgencia)}</div>
+          <div><strong>SLA</strong>${badgeSla(ticket.estado_sla, ticket.sla_limite_resolucion)}</div>
+          <div><strong>Solicitante</strong>#${ticket.solicitante_id}</div>
+          <div><strong>Técnico</strong>${esc(nombreAgente)}</div>
+          <div><strong>Categoría</strong>${esc(nombreCategoria(ticket.categoria_id))}</div>
+          <div><strong>Grupo</strong>${esc(nombreGrupo(ticket.grupo_asignado_id))}</div>
+        </div>
+        <p class="detalle-desc">${esc(ticket.descripcion) || '<span class="desc">Sin descripción</span>'}</p>
+        <p id="presenciaVivo" class="desc" aria-live="polite"></p>
+        ${nota}
+        ${encuesta}
+        ${clasificacion}
+        <div class="detalle-bloque">
+          <h3>Adjuntos</h3>
+          ${adjuntosHtml}
+          ${subidaAdjunto}
+        </div>
+        ${asignacion}
+        ${bloqueObservadores}
+        ${bloqueAsistente}
+        ${bloqueFusion}
+        <div class="detalle-bloque">
+          <h3>Conversación</h3>
+          ${comentariosHtml}
+          ${formulario}
+        </div>
+        <div class="detalle-bloque">
+          <h3>Historial de auditoría</h3>
+          <ul class="historial">${historialHtml}</ul>
+        </div>`;
+    }
+
+    async function guardarClasificacion() {
+      const categoria = $("detalleCategoria").value;
+      const grupo = $("detalleGrupo").value;
+      try {
+        await api(`${API}/${detalleId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            categoria_id: categoria ? Number(categoria) : null,
+            grupo_asignado_id: grupo ? Number(grupo) : null,
+            version: detalleVersion
+          })
+        });
+        mensajeDetalle("Clasificación actualizada", true);
+        await cargarCatalogos();
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    let eventoPresencia = null;
+
+    function abrirPresencia(ticketId) {
+      cerrarPresencia();
+      if (!token || typeof EventSource === "undefined") return;
+      const url = `${API}/${ticketId}/presencia?token=${encodeURIComponent(token)}`;
+      try {
+        eventoPresencia = new EventSource(url);
+      } catch (error) {
+        return;
+      }
+      eventoPresencia.onmessage = (evento) => {
+        let datos = { viendo: [] };
+        try { datos = JSON.parse(evento.data); } catch (e) { return; }
+        const aviso = $("presenciaVivo");
+        if (!aviso) return;
+        const otros = datos.viendo || [];
+        aviso.textContent = otros.length
+          ? `También está mirando este ticket: ${otros.join(", ")}`
+          : "";
+      };
+      eventoPresencia.onerror = () => {};
+    }
+
+    function cerrarPresencia() {
+      if (eventoPresencia) {
+        eventoPresencia.close();
+        eventoPresencia = null;
+      }
+    }
+
+    function insertarPlantilla() {
+      const macroId = Number($("macroComentario").value);
+      const macro = macros.find((m) => m.id === macroId);
+      if (!macro) return;
+      $("nuevoComentario").value = macro.texto;
+      if ($("comentarioInterno")) $("comentarioInterno").checked = macro.es_interna;
+      $("nuevoComentario").focus();
+    }
+
+    let sugerenciaIa = null;
+
+    async function pedirSugerencia() {
+      const caja = $("sugerenciaIa");
+      if (caja) caja.textContent = "Consultando al asistente…";
+      try {
+        sugerenciaIa = await api(`${API}/${detalleId}/asistencia/triaje`, {
+          method: "POST"
+        });
+        if (!caja) return;
+        const categoria = sugerenciaIa.categoria || "sin categoría propuesta";
+        caja.innerHTML = `
+          <p><strong>${esc(sugerenciaIa.prioridad)}</strong> · ${esc(sugerenciaIa.tipo)} · impacto ${esc(sugerenciaIa.impacto)} · urgencia ${esc(sugerenciaIa.urgencia)}</p>
+          <p>Categoría: ${esc(categoria)}</p>
+          <p>${esc(sugerenciaIa.motivo)}</p>
+          <button type="button" class="secundario" onclick="aplicarSugerencia()">Aplicar sugerencia</button>`;
+      } catch (error) {
+        sugerenciaIa = null;
+        if (caja) {
+          caja.textContent =
+            error.message === "401"
+              ? ""
+              : `El asistente no está disponible: ${error.message}`;
+        }
+      }
+    }
+
+    async function aplicarSugerencia() {
+      if (!sugerenciaIa) return;
+      try {
+        await api(`${API}/${detalleId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            tipo: sugerenciaIa.tipo,
+            impacto: sugerenciaIa.impacto,
+            urgencia: sugerenciaIa.urgencia,
+            categoria_id: sugerenciaIa.categoria_id,
+            version: detalleVersion
+          })
+        });
+        mensajeDetalle("Clasificación aplicada", true);
+        sugerenciaIa = null;
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function añadirObservador() {
+      const email = $("nuevoObservador").value.trim();
+      if (!email) return;
+      try {
+        await api(`${API}/${detalleId}/observadores`, {
+          method: "POST",
+          body: JSON.stringify({ email })
+        });
+        mensajeDetalle("Añadido a la copia", true);
+        await cargarDetalle();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function quitarObservador(observadorId) {
+      try {
+        await api(`${API}/${detalleId}/observadores/${observadorId}`, {
+          method: "DELETE"
+        });
+        await cargarDetalle();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function fusionarEn() {
+      const codigo = $("ticketDuplicado").value.trim();
+      if (!codigo) return;
+      if (!confirm(`Se cerrará ${codigo} y su contenido pasará a este ticket. ¿Continuar?`)) {
+        return;
+      }
+      try {
+        await api(`${API}/${detalleId}/fusionar/${encodeURIComponent(codigo)}`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+        mensajeDetalle("Ticket fusionado", true);
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function enviarCsat(evento) {
+      evento.preventDefault();
+      try {
+        await api(`${API}/${detalleId}/csat`, {
+          method: "POST",
+          body: JSON.stringify({
+            puntuacion: Number($("csatPuntuacion").value),
+            comentario: $("csatComentario").value.trim() || null
+          })
+        });
+        mensajeDetalle("Gracias por tu valoración", true);
+        await cargarDetalle();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function guardarAsignacion() {
+      const valor = $("detalleAgente").value;
+      try {
+        await api(`${API}/${detalleId}/asignar`, {
+          method: "POST",
+          body: JSON.stringify({ agente_id: valor ? Number(valor) : null })
+        });
+        mensajeDetalle("Técnico actualizado", true);
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    // ---------- Configuración (administradores) ----------
+    function mensajeConfig(texto, ok = false) {
+      const caja = $("configMensaje");
+      caja.textContent = texto;
+      caja.className = ok ? "mensaje ok" : "mensaje";
+      caja.hidden = false;
+    }
+
+    async function abrirConfiguracion() {
+      if (!esAdmin()) return;
+      $("modalConfig").hidden = false;
+      $("configMensaje").hidden = true;
+      await cargarConfiguracion();
+    }
+
+    function cerrarConfiguracion() {
+      $("modalConfig").hidden = true;
+    }
+
+    async function cargarConfiguracion() {
+      try {
+        const [listaCategorias, listaGrupos, listaReglas, listaTecnicos] =
+          await Promise.all([
+            api("/categorias?incluir_inactivas=true"),
+            api("/grupos?incluir_inactivos=true"),
+            api("/reglas"),
+            api("/auth/tecnicos")
+          ]);
+        categorias = listaCategorias.filter((c) => c.activa);
+        grupos = listaGrupos.filter((g) => g.activo);
+        reglasConfig = listaReglas;
+        tecnicos = listaTecnicos;
+        pintarSelectsCatalogo();
+        pintarConfigCategorias(listaCategorias);
+        pintarConfigGrupos(listaGrupos);
+        pintarConfigReglas(listaReglas);
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    function pintarConfigCategorias(lista) {
+      $("configCategorias").innerHTML = lista.length
+        ? lista.map((c) => `
+            <div class="adjunto">
+              <div class="adjunto-info">
+                <strong>${esc(c.nombre)}</strong>
+                <div class="desc">${c.activa ? "Activa" : "Inactiva"}${c.parent_id ? ` · padre #${c.parent_id}` : ""}</div>
+              </div>
+              <button type="button" class="terciario" onclick="eliminarCategoria(${c.id})">Eliminar</button>
+            </div>`).join("")
+        : '<p class="vacio">Sin categorías</p>';
+    }
+
+    function pintarConfigGrupos(lista) {
+      $("configGrupos").innerHTML = lista.length
+        ? lista.map((g) => {
+            const ids = new Set(g.miembros.map((m) => m.usuario_id));
+            const disponibles = (tecnicos || []).filter((t) => !ids.has(t.id));
+            const opciones = disponibles.map((t) =>
+              `<option value="${t.id}">${esc(t.nombre_completo)} (${esc(t.rol)})</option>`
+            ).join("");
+            const miembros = g.miembros.length
+              ? g.miembros.map((m) => `
+                  <span class="etiqueta estado">${esc(m.usuario.nombre_completo)}
+                    <a href="#" onclick="quitarMiembroGrupo(${g.id}, ${m.usuario_id}); return false;">×</a>
+                  </span>`).join(" ")
+              : '<span class="desc">Sin miembros</span>';
+            return `
+              <div class="adjunto">
+                <div class="adjunto-info">
+                  <strong>${esc(g.nombre)}</strong>
+                  <div class="desc">${g.activo ? "Activo" : "Inactivo"} · ${g.miembros.length} técnicos</div>
+                  <div style="margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;">${miembros}</div>
+                </div>
+                <button type="button" class="terciario" onclick="eliminarGrupo(${g.id})">Eliminar</button>
+                ${disponibles.length ? `
+                  <div class="asignacion">
+                    <select id="miembroGrupo-${g.id}">${opciones}</select>
+                    <button type="button" class="terciario" onclick="agregarMiembroGrupo(${g.id})">Añadir</button>
+                  </div>` : ""}
+              </div>`;
+          }).join("")
+        : '<p class="vacio">Sin grupos</p>';
+    }
+
+    function textoCondicion(condicion) {
+      let valor = condicion.valor;
+      if (condicion.campo === "categoria_id") {
+        valor = nombreCategoria(Number(valor));
+      } else if (Array.isArray(valor)) {
+        valor = valor.join(" / ");
+      }
+      return `${condicion.campo} ${condicion.operador} ${valor ?? "—"}`;
+    }
+
+    function pintarConfigReglas(lista) {
+      $("configReglas").innerHTML = lista.length
+        ? lista.map((r) => {
+            const condiciones = (r.condiciones || []).length
+              ? r.condiciones.map(textoCondicion).join(` ${r.logica} `)
+              : "Siempre";
+            const acciones = [];
+            if (r.acciones.grupo_id) acciones.push(`grupo: ${nombreGrupo(r.acciones.grupo_id)}`);
+            if (r.acciones.auto_asignar) acciones.push(`auto: ${r.acciones.auto_asignar}`);
+            if (r.acciones.agente_id) acciones.push(`agente: #${r.acciones.agente_id}`);
+            return `
+              <div class="adjunto">
+                <div class="adjunto-info">
+                  <strong>${esc(r.nombre)}</strong>
+                  <div class="desc">${r.activa ? "Activa" : "Inactiva"} · orden ${r.orden} · ${esc(condiciones)}</div>
+                  <div class="desc">${esc(acciones.join(" · ") || "Sin acciones")}</div>
+                </div>
+                <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                  <button type="button" class="terciario" onclick="alternarRegla(${r.id}, ${r.activa})">${r.activa ? "Desactivar" : "Activar"}</button>
+                  <button type="button" class="terciario" onclick="eliminarRegla(${r.id})">Eliminar</button>
+                </div>
+              </div>`;
+          }).join("")
+        : '<p class="vacio">Sin reglas</p>';
+    }
+
+    async function refrescarTrasConfig() {
+      await cargarCatalogos();
+      cargar();
+      if (detalleId !== null) await cargarDetalle();
+    }
+
+    async function crearCategoria(evento) {
+      evento.preventDefault();
+      const nombre = $("nuevaCategoria").value.trim();
+      const parent = $("nuevaCategoriaPadre").value;
+      try {
+        await api("/categorias", {
+          method: "POST",
+          body: JSON.stringify({
+            nombre,
+            parent_id: parent ? Number(parent) : null
+          })
+        });
+        $("nuevaCategoria").value = "";
+        mensajeConfig("Categoría creada", true);
+        await cargarConfiguracion();
+        await refrescarTrasConfig();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function crearGrupo(evento) {
+      evento.preventDefault();
+      const nombre = $("nuevoGrupo").value.trim();
+      try {
+        await api("/grupos", {
+          method: "POST",
+          body: JSON.stringify({ nombre })
+        });
+        $("nuevoGrupo").value = "";
+        mensajeConfig("Grupo creado", true);
+        await cargarConfiguracion();
+        await refrescarTrasConfig();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function agregarMiembroGrupo(grupoId) {
+      const select = $(`miembroGrupo-${grupoId}`);
+      if (!select || !select.value) return;
+      try {
+        await api(`/grupos/${grupoId}/miembros/${select.value}`, { method: "POST" });
+        mensajeConfig("Técnico añadido al grupo", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function quitarMiembroGrupo(grupoId, usuarioId) {
+      try {
+        await api(`/grupos/${grupoId}/miembros/${usuarioId}`, { method: "DELETE" });
+        mensajeConfig("Técnico quitado del grupo", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function eliminarCategoria(categoriaId) {
+      if (!confirm("¿Eliminar esta categoría? Solo es posible si no tiene tickets, subcategorías ni reglas asociadas.")) return;
+      try {
+        await api(`/categorias/${categoriaId}`, { method: "DELETE" });
+        mensajeConfig("Categoría eliminada", true);
+        await cargarConfiguracion();
+        await refrescarTrasConfig();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function eliminarGrupo(grupoId) {
+      if (!confirm("¿Eliminar este grupo? Solo es posible si no tiene tickets ni reglas asociadas.")) return;
+      try {
+        await api(`/grupos/${grupoId}`, { method: "DELETE" });
+        mensajeConfig("Grupo eliminado", true);
+        await cargarConfiguracion();
+        await refrescarTrasConfig();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function eliminarRegla(reglaId) {
+      if (!confirm("¿Eliminar esta regla de automatización?")) return;
+      try {
+        await api(`/reglas/${reglaId}`, { method: "DELETE" });
+        mensajeConfig("Regla eliminada", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function alternarRegla(reglaId, activa) {
+      try {
+        await api(`/reglas/${reglaId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ activa: !activa })
+        });
+        mensajeConfig("Regla actualizada", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function crearRegla(evento) {
+      evento.preventDefault();
+      const condiciones = [];
+      if ($("reglaCategoria").value) {
+        condiciones.push({
+          campo: "categoria_id",
+          operador: "=",
+          valor: Number($("reglaCategoria").value)
+        });
+      }
+      if ($("reglaImpacto").value) {
+        condiciones.push({ campo: "impacto", operador: "=", valor: $("reglaImpacto").value });
+      }
+      if ($("reglaUrgencia").value) {
+        condiciones.push({ campo: "urgencia", operador: "=", valor: $("reglaUrgencia").value });
+      }
+      const acciones = {};
+      if ($("reglaGrupo").value) acciones.grupo_id = Number($("reglaGrupo").value);
+      if ($("reglaModo").value) acciones.auto_asignar = $("reglaModo").value;
+
+      try {
+        await api("/reglas", {
+          method: "POST",
+          body: JSON.stringify({
+            nombre: $("reglaNombre").value.trim(),
+            condiciones,
+            acciones,
+            logica: $("reglaLogica").value,
+            activa: $("reglaActiva").checked
+          })
+        });
+        $("reglaNombre").value = "";
+        mensajeConfig("Regla creada", true);
+        await cargarConfiguracion();
+      } catch (error) {
+        if (error.message !== "401") mensajeConfig(error.message);
+      }
+    }
+
+    async function subirAdjunto() {
+      const entrada = $("archivoAdjunto");
+      if (!entrada || !entrada.files || !entrada.files.length) {
+        mensajeDetalle("Selecciona un archivo antes de subirlo");
+        return;
+      }
+      const formulario = new FormData();
+      formulario.append("archivo", entrada.files[0]);
+      const interno = $("adjuntoInterno") ? $("adjuntoInterno").checked : false;
+      formulario.append("es_interno", interno ? "true" : "false");
+      try {
+        await api(`${API}/${detalleId}/adjuntos`, { method: "POST", body: formulario });
+        mensajeDetalle("Adjunto subido", true);
+        await cargarDetalle();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function descargarAdjunto(id) {
+      const adjunto = adjuntosDetalle.find((a) => a.id === id);
+      try {
+        const cabeceras = {};
+        if (token) cabeceras.Authorization = "Bearer " + token;
+        const respuesta = await fetch(`/adjuntos/${id}`, { headers: cabeceras });
+        if (respuesta.status === 401 && token) {
+          cerrarSesion("Tu sesión ha caducado. Entra de nuevo.");
+          return;
+        }
+        if (!respuesta.ok) {
+          let datos = null;
+          try { datos = await respuesta.json(); } catch (e) { }
+          throw new Error(textoError(datos));
+        }
+        const blob = await respuesta.blob();
+        const url = URL.createObjectURL(blob);
+        const enlace = document.createElement("a");
+        enlace.href = url;
+        enlace.download = adjunto ? adjunto.nombre_original : "adjunto";
+        document.body.appendChild(enlace);
+        enlace.click();
+        enlace.remove();
+        URL.revokeObjectURL(url);
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    async function enviarComentario(evento) {
+      evento.preventDefault();
+      const contenido = $("nuevoComentario").value.trim();
+      if (!contenido) return;
+      const esInterno = $("comentarioInterno") ? $("comentarioInterno").checked : false;
+      try {
+        await api(`${API}/${detalleId}/comentarios`, {
+          method: "POST",
+          body: JSON.stringify({ contenido, es_interno: esInterno })
+        });
+        mensajeDetalle("Comentario añadido", true);
+        await cargarDetalle();
+        await cargar();
+      } catch (error) {
+        if (error.message !== "401") mensajeDetalle(error.message);
+      }
+    }
+
+    $("formIncidencia").addEventListener("submit", async (evento) => {
+      evento.preventDefault();
+      const cuerpo = {
+        titulo: $("titulo").value,
+        descripcion: $("descripcion").value
+      };
+      if ($("categoria").value) cuerpo.categoria_id = Number($("categoria").value);
+      if (esGestor()) {
+        cuerpo.impacto = $("impacto").value;
+        cuerpo.urgencia = $("urgencia").value;
+        if ($("grupoAsignado").value) cuerpo.grupo_asignado_id = Number($("grupoAsignado").value);
+      }
+      try {
+        await api(API, { method: "POST", body: JSON.stringify(cuerpo) });
+        evento.target.reset();
+        ocultarSugerencias();
+        mostrarMensaje("Incidencia registrada", true);
+        cargar();
+      } catch (error) {
+        if (error.message !== "401") mostrarMensaje(error.message);
+      }
+    });
+
+    ["filtroEstado", "filtroPrioridad", "filtroSla", "filtroCategoria", "filtroGrupo"]
+      .forEach((id) => {
+        $(id).addEventListener("change", () => {
+          reiniciarPagina();
+          cargar();
+        });
+      });
+
+    let temporizadorFiltro = null;
+    $("filtroTexto").addEventListener("input", () => {
+      clearTimeout(temporizadorFiltro);
+      temporizadorFiltro = setTimeout(() => {
+        reiniciarPagina();
+        cargar();
+      }, 350);
+    });
+
+    $("paginaAnterior").addEventListener("click", () => cambiarPagina(-1));
+    $("paginaSiguiente").addEventListener("click", () => cambiarPagina(1));
+    $("titulo").addEventListener("input", programarSugerencias);
+
+    // ---------- Arranque ----------
+    if (token && usuario) {
+      mostrarApp();
+    } else {
+      mostrarAcceso();
+    }
+
+    // Refresco periódico de avisos de SLA mientras haya sesión
+    setInterval(() => {
+      if (token) cargarNotificaciones();
+    }, 60000);
+  

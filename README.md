@@ -339,7 +339,9 @@ helpdesk-lite/
 |   |-- sla.py           # Cálculo de SLA, calendario laboral y pausas
 |   |-- sla_vigilancia.py # Alertas al 80 %/100 % y notificaciones de escalado
 |   `-- static/
-|       `-- index.html   # Interfaz web (listado, detalle, configuración y avisos)
+|       |-- index.html   # Interfaz web (markup)
+|       |-- app.css      # Sistema visual: tokens, layout, tabla y cajón de detalle
+|       `-- app.js       # Lógica de la interfaz
 |-- tests/
 |   |-- test_adjuntos.py           # Tests de subida, descarga y privacidad de adjuntos
 |   |-- test_auditoria.py          # Tests de historial y trazabilidad inmutable
