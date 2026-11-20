@@ -315,8 +315,8 @@ th:nth-child(2) { width: auto; }
 th:nth-child(3) { width: 134px; }
 th:nth-child(4) { width: 124px; }
 th:nth-child(5) { width: 142px; }
-th:nth-child(6) { width: 132px; }
-th:nth-child(7) { width: 98px; }
+th:nth-child(6) { width: 146px; }
+th:nth-child(7) { width: 92px; }
 th:nth-child(8) { width: 128px; }
 
 tbody td {
@@ -365,7 +365,58 @@ tbody td button { padding: 4px 9px; font-size: 11.5px; }
 
 #tabla .etiqueta + .desc { font-size: 11px; }
 
-/* Prioridad y SLA: punto de color + texto en mono, sin pastillas */
+/* SLA: anillo que se llena con el tiempo consumido */
+
+.sla {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--tinta-3);
+}
+
+.sla-texto {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  font-size: 12px;
+}
+
+.sla-fecha {
+  font-family: var(--datos);
+  font-size: 10.5px;
+  color: var(--tinta-3);
+  white-space: nowrap;
+}
+
+.sla-en_tiempo { color: var(--ok); }
+.sla-en_riesgo { color: var(--aviso); }
+.sla-vencido { color: var(--peligro); }
+.sla-pausado { color: var(--tinta-3); }
+.sla-cumplido { color: var(--ok); }
+.sla-sin_politica { color: var(--tinta-3); }
+
+.sla-texto span { color: currentColor; }
+
+.anillo { width: 20px; height: 20px; flex: 0 0 auto; }
+.anillo circle { fill: none; stroke-width: 3; }
+.anillo-fondo { stroke: var(--linea); }
+.anillo-arco {
+  stroke: currentColor;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 400ms ease-out;
+}
+
+/* Carril de prioridad en el borde izquierdo de cada fila */
+
+tbody tr.fila-p1 td:first-child { box-shadow: inset 3px 0 var(--p1); }
+tbody tr.fila-p2 td:first-child { box-shadow: inset 3px 0 var(--p2); }
+tbody tr.fila-p3 td:first-child { box-shadow: inset 3px 0 var(--p3); }
+tbody tr.fila-p4 td:first-child { box-shadow: inset 3px 0 transparent; }
+
+tbody tr.fila-p1 td:first-child,
+tbody tr.fila-p2 td:first-child { font-weight: 600; color: var(--tinta); }
+
+/* Debajo de 1080 la tabla es tarjeta: el carril pasa a la tarjeta entera */
 
 .etiqueta {
   display: inline-flex;
@@ -393,12 +444,6 @@ tbody td button { padding: 4px 9px; font-size: 11.5px; }
 .etiqueta.estado { color: var(--tinta-2); }
 .etiqueta.estado::before { background: var(--linea-fuerte); }
 
-.etiqueta.sla-en_tiempo { color: var(--ok); }
-.etiqueta.sla-en_riesgo { color: var(--aviso); }
-.etiqueta.sla-vencido { color: var(--peligro); }
-.etiqueta.sla-pausado { color: var(--tinta-3); }
-.etiqueta.sla-cumplido { color: var(--ok); }
-.etiqueta.sla-pausado::before { background: transparent; border: 1px solid currentColor; }
 
 /* ---------- Texto auxiliar ---------- */
 
@@ -587,6 +632,11 @@ tbody td button { padding: 4px 9px; font-size: 11.5px; }
 
 /* ---------- Detalle ---------- */
 
+#modalDetalle[data-prioridad="1"] .modal-cabecera { box-shadow: inset 0 4px 0 var(--p1); }
+#modalDetalle[data-prioridad="2"] .modal-cabecera { box-shadow: inset 0 4px 0 var(--p2); }
+#modalDetalle[data-prioridad="3"] .modal-cabecera { box-shadow: inset 0 4px 0 var(--p3); }
+#modalDetalle[data-prioridad="4"] .modal-cabecera { box-shadow: inset 0 4px 0 transparent; }
+
 .detalle-meta {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -652,22 +702,36 @@ tbody td button { padding: 4px 9px; font-size: 11.5px; }
 
 .comentario-texto { font-size: 13px; white-space: pre-wrap; }
 
-/* Historial */
+/* Historial: línea de tiempo */
 
 .historial {
+  position: relative;
   margin: 0;
-  padding: 0;
+  padding: 0 0 0 20px;
   list-style: none;
+  border-left: 1px solid var(--linea);
   font-size: 12.5px;
 }
 
 .historial li {
-  padding: 6px 0;
-  border-bottom: 1px solid var(--linea);
+  position: relative;
+  padding: 5px 0;
   color: var(--tinta-2);
 }
 
-.historial li:last-child { border-bottom: none; }
+.historial li::before {
+  content: "";
+  position: absolute;
+  left: -23px;
+  top: 10px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--superficie);
+  box-shadow: 0 0 0 1px var(--linea-fuerte);
+}
+
+.historial li:last-child::before { background: var(--acento); box-shadow: 0 0 0 1px var(--acento); }
 
 .historial .fecha {
   display: inline;
@@ -798,6 +862,9 @@ tbody td button { padding: 4px 9px; font-size: 11.5px; }
   }
   tbody td.pequeno { display: flex; }
   tbody td:first-child { display: none; }
+  tbody tr.fila-p1 { box-shadow: inset 3px 0 var(--p1); }
+  tbody tr.fila-p2 { box-shadow: inset 3px 0 var(--p2); }
+  tbody tr.fila-p3 { box-shadow: inset 3px 0 var(--p3); }
   tbody td:nth-child(2) { display: block; padding-bottom: 8px; }
   tbody td:nth-child(2)::before { content: none; }
   tbody td:last-child { justify-content: flex-end; }

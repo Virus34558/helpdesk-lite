@@ -57,12 +57,41 @@
       return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
     }
 
-    function badgeSla(estadoSla, limite) {
+    function formatearFechaCorta(iso) {
+      return new Date(iso).toLocaleString("es-ES", {
+        day: "2-digit",
+        month: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+
+    function anilloSla(porcentaje) {
+      const avance = Math.max(0, Math.min(1, Number(porcentaje) || 0));
+      const radio = 9;
+      const vuelta = 2 * Math.PI * radio;
+      const hueco = vuelta * (1 - avance);
+      return `<svg class="anillo" viewBox="0 0 24 24" aria-hidden="true">
+        <circle class="anillo-fondo" cx="12" cy="12" r="${radio}"></circle>
+        <circle class="anillo-arco" cx="12" cy="12" r="${radio}"
+          stroke-dasharray="${vuelta.toFixed(2)}"
+          stroke-dashoffset="${hueco.toFixed(2)}"
+          transform="rotate(-90 12 12)"></circle>
+      </svg>`;
+    }
+
+    function badgeSla(estadoSla, limite, porcentaje) {
       const estado = estadoSla || "en_tiempo";
       const vence = limite
-        ? `<div class="desc">${formatearFecha(limite)}</div>`
+        ? `<span class="sla-fecha">${formatearFechaCorta(limite)}</span>`
         : "";
-      return `<span class="etiqueta sla-${esc(estado)}">${esc(TEXTO_SLA[estado] || estado)}</span>${vence}`;
+      return `<div class="sla sla-${esc(estado)}" title="SLA al ${Math.round((Number(porcentaje) || 0) * 100)} %">
+        ${anilloSla(porcentaje)}
+        <div class="sla-texto">
+          <span>${esc(TEXTO_SLA[estado] || estado)}</span>
+          ${vence}
+        </div>
+      </div>`;
     }
 
     function esGestor() {
@@ -453,13 +482,13 @@
         ].filter(Boolean).join(" · ");
 
         return `
-          <tr>
+          <tr class="fila-p${esc(i.prioridad.charAt(1))}">
             <td>${i.id}</td>
             <td><div class="titulo-fila">${esc(i.titulo)}</div><div class="desc">${esc(clasificacion || "Sin clasificar")}</div></td>
             <td data-columna="Prioridad"><span class="etiqueta p${esc(i.prioridad.charAt(1))}">${esc(i.prioridad)}</span></td>
             <td class="pequeno" data-columna="Impacto">${esc(i.impacto)} / ${esc(i.urgencia)}</td>
             <td data-columna="Estado">${estadoHtml}</td>
-            <td data-columna="SLA">${badgeSla(i.estado_sla, i.sla_limite_resolucion)}</td>
+            <td data-columna="SLA">${badgeSla(i.estado_sla, i.sla_limite_resolucion, i.sla_porcentaje)}</td>
             <td data-columna="Creada">${formatearFecha(i.creada_en)}</td>
             <td data-columna="">${acciones}</td>
           </tr>`;
@@ -1003,6 +1032,7 @@
     function pintarDetalle(ticket, comentarios, historial, adjuntos, observadores = []) {
       adjuntosDetalle = adjuntos;
       $("detalleContenido").removeAttribute("aria-busy");
+      $("modalDetalle").dataset.prioridad = ticket.prioridad.charAt(1);
       detalleVersion = ticket.version;
       $("detalleTitulo").textContent = ticket.titulo;
       $("detalleCodigo").textContent = `${ticket.id_legible} · #${ticket.id}`;
@@ -1215,7 +1245,7 @@
           <div><strong>Tipo</strong>${esc(ticket.tipo)}</div>
           <div><strong>Canal</strong>${esc(ticket.canal_origen)}</div>
           <div><strong>Impacto / Urgencia</strong>${esc(ticket.impacto)} / ${esc(ticket.urgencia)}</div>
-          <div><strong>SLA</strong>${badgeSla(ticket.estado_sla, ticket.sla_limite_resolucion)}</div>
+          <div><strong>SLA</strong>${badgeSla(ticket.estado_sla, ticket.sla_limite_resolucion, ticket.sla_porcentaje)}</div>
           <div><strong>Solicitante</strong>#${ticket.solicitante_id}</div>
           <div><strong>Técnico</strong>${esc(nombreAgente)}</div>
           <div><strong>Categoría</strong>${esc(nombreCategoria(ticket.categoria_id))}</div>

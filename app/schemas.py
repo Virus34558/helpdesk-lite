@@ -352,6 +352,7 @@ class IncidenciaRespuesta(BaseModel):
     sla_en_riesgo_80: bool = False
     sla_breach_100: bool = False
     estado_sla: str | None = None
+    sla_porcentaje: float = 0.0
 
 
 class AutorComentarioRespuesta(BaseModel):

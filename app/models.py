@@ -200,6 +200,13 @@ class Incidencia(Base):
 
         return sla.calcular_estado_sla(self)
 
+    @property
+    def sla_porcentaje(self) -> float:
+        """Fracción del tiempo de resolución consumido (para el anillo de la interfaz)."""
+        from . import sla
+
+        return round(min(1.5, max(0.0, sla.porcentaje_consumido_sla(self))), 3)
+
 
 class Comentario(Base):
     __tablename__ = "comentarios"
