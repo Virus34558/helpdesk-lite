@@ -119,16 +119,89 @@
       ).join("");
     }
 
+    function toast(texto, ok = false) {
+      const contenedor = $("toasts");
+      if (!contenedor) return;
+      const aviso = document.createElement("div");
+      aviso.className = ok ? "toast ok" : "toast";
+      aviso.setAttribute("role", ok ? "status" : "alert");
+      aviso.textContent = texto;
+      contenedor.appendChild(aviso);
+      while (contenedor.children.length > 3) contenedor.firstElementChild.remove();
+      requestAnimationFrame(() => aviso.classList.add("visible"));
+      const salir = () => {
+        aviso.classList.remove("visible");
+        setTimeout(() => aviso.remove(), 220);
+      };
+      setTimeout(salir, ok ? 3200 : 6000);
+      aviso.addEventListener("click", salir);
+    }
+
     function mostrarMensaje(texto, ok = false) {
-      const caja = $("mensaje");
-      caja.textContent = texto;
-      caja.className = ok ? "mensaje ok" : "mensaje";
-      caja.hidden = false;
+      toast(texto, ok);
     }
 
     function ocultarMensaje() {
-      $("mensaje").hidden = true;
+      const caja = $("mensaje");
+      if (caja) caja.hidden = true;
     }
+
+    // ---------- Diálogos: foco, Escape y trampa de tabulación ----------
+
+    const SELECTOR_FOCO =
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    let modalActivo = null;
+    let focoAnterior = null;
+
+    function activarModal(elemento) {
+      if (!elemento) return;
+      focoAnterior = document.activeElement;
+      modalActivo = elemento;
+      const primero = elemento.querySelector(SELECTOR_FOCO);
+      if (primero) primero.focus({ preventScroll: true });
+    }
+
+    function desactivarModal(elemento) {
+      if (modalActivo !== elemento) return;
+      modalActivo = null;
+      if (focoAnterior && document.contains(focoAnterior)) {
+        focoAnterior.focus({ preventScroll: true });
+      }
+      focoAnterior = null;
+    }
+
+    function cerrarModalActivo() {
+      if (!modalActivo) return;
+      const id = modalActivo.id;
+      if (id === "modalDetalle") cerrarDetalle();
+      else if (id === "modalConocimiento") cerrarConocimiento();
+      else if (id === "modalReportes") cerrarReportes();
+      else if (id === "modalConfig") cerrarConfiguracion();
+    }
+
+    document.addEventListener("keydown", (evento) => {
+      if (!modalActivo) return;
+      if (evento.key === "Escape") {
+        evento.preventDefault();
+        cerrarModalActivo();
+        return;
+      }
+      if (evento.key !== "Tab") return;
+      const focos = Array.from(modalActivo.querySelectorAll(SELECTOR_FOCO)).filter(
+        (elemento) => !elemento.closest("[hidden]")
+      );
+      if (focos.length === 0) return;
+      const primero = focos[0];
+      const ultimo = focos[focos.length - 1];
+      if (evento.shiftKey && document.activeElement === primero) {
+        evento.preventDefault();
+        ultimo.focus();
+      } else if (!evento.shiftKey && document.activeElement === ultimo) {
+        evento.preventDefault();
+        primero.focus();
+      }
+    });
 
     function textoError(datos) {
       if (!datos || !datos.detail) return "Ha ocurrido un error. Inténtalo de nuevo.";
@@ -490,6 +563,7 @@
       if (!token) return;
       ocultarMensajeConocimiento();
       $("modalConocimiento").hidden = false;
+      activarModal($("modalConocimiento"));
       $("buscarConocimiento").value = "";
       $("categoriaConocimiento").value = "";
       $("btnNuevoArticulo").hidden = !esGestor();
@@ -501,6 +575,7 @@
 
     function cerrarConocimiento() {
       if ($("modalConocimiento")) $("modalConocimiento").hidden = true;
+      desactivarModal($("modalConocimiento"));
       if ($("listaConocimiento")) $("listaConocimiento").innerHTML = "";
       if ($("detalleArticulo")) $("detalleArticulo").innerHTML = "";
       articuloActual = null;
@@ -726,6 +801,7 @@
     async function abrirReportes() {
       if (!esSupervision()) return;
       $("modalReportes").hidden = false;
+      activarModal($("modalReportes"));
       ocultarMensajeReportes();
       try {
         if (!tecnicos) await cargarTecnicos();
@@ -738,6 +814,7 @@
 
     function cerrarReportes() {
       if ($("modalReportes")) $("modalReportes").hidden = true;
+      desactivarModal($("modalReportes"));
     }
 
     function pintarFiltrosReporte() {
@@ -875,9 +952,18 @@
       detalleId = id;
       ocultarMensajeDetalle();
       $("modalDetalle").hidden = false;
+      activarModal($("modalDetalle"));
       $("detalleTitulo").textContent = "Cargando…";
       $("detalleCodigo").textContent = "";
-      $("detalleContenido").innerHTML = '<p class="vacio">Cargando…</p>';
+      $("detalleContenido").setAttribute("aria-busy", "true");
+      $("detalleContenido").innerHTML = `
+        <div class="esqueleto" aria-hidden="true">
+          <div class="esqueleto-linea ancha"></div>
+          <div class="esqueleto-linea"></div>
+          <div class="esqueleto-linea corta"></div>
+          <div class="esqueleto-bloque"></div>
+          <div class="esqueleto-linea"></div>
+        </div>`;
       abrirPresencia(id);
       try {
         if (esGestor()) await cargarTecnicos();
@@ -897,6 +983,7 @@
       adjuntosDetalle = [];
       cerrarPresencia();
       if ($("modalDetalle")) $("modalDetalle").hidden = true;
+      desactivarModal($("modalDetalle"));
       if ($("detalleContenido")) $("detalleContenido").innerHTML = "";
       if ($("detalleMensaje")) $("detalleMensaje").hidden = true;
     }
@@ -915,6 +1002,7 @@
 
     function pintarDetalle(ticket, comentarios, historial, adjuntos, observadores = []) {
       adjuntosDetalle = adjuntos;
+      $("detalleContenido").removeAttribute("aria-busy");
       detalleVersion = ticket.version;
       $("detalleTitulo").textContent = ticket.titulo;
       $("detalleCodigo").textContent = `${ticket.id_legible} · #${ticket.id}`;
@@ -1356,12 +1444,14 @@
     async function abrirConfiguracion() {
       if (!esAdmin()) return;
       $("modalConfig").hidden = false;
+      activarModal($("modalConfig"));
       $("configMensaje").hidden = true;
       await cargarConfiguracion();
     }
 
     function cerrarConfiguracion() {
       $("modalConfig").hidden = true;
+      desactivarModal($("modalConfig"));
     }
 
     async function cargarConfiguracion() {

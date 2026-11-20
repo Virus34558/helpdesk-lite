@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HelpDesk Lite</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c6b58'/%3E%3Cpath d='M9 11h14M9 16h14M9 21h9' stroke='white' stroke-width='2.5' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 
@@ -154,7 +155,7 @@
   </main>
 
   <!-- Detalle del ticket -->
-  <div id="modalDetalle" class="modal" hidden>
+  <div id="modalDetalle" class="modal" role="dialog" aria-modal="true" aria-labelledby="detalleTitulo" hidden>
     <div class="modal-caja">
       <div class="modal-cabecera">
         <div>
@@ -169,7 +170,7 @@
   </div>
 
   <!-- Base de conocimiento -->
-  <div id="modalConocimiento" class="modal" hidden>
+  <div id="modalConocimiento" class="modal" role="dialog" aria-modal="true" aria-label="Base de conocimiento" hidden>
     <div class="modal-caja">
       <div class="modal-cabecera">
         <div>
@@ -223,7 +224,7 @@
   </div>
 
   <!-- Reportes y KPIs -->
-  <div id="modalReportes" class="modal" hidden>
+  <div id="modalReportes" class="modal" role="dialog" aria-modal="true" aria-label="Reportes" hidden>
     <div class="modal-caja">
       <div class="modal-cabecera">
         <div>
@@ -264,7 +265,7 @@
   </div>
 
   <!-- Configuración (solo administradores) -->
-  <div id="modalConfig" class="modal" hidden>
+  <div id="modalConfig" class="modal" role="dialog" aria-modal="true" aria-label="Configuración" hidden>
     <div class="modal-caja">
       <div class="modal-cabecera">
         <div>
@@ -348,6 +349,7 @@
     </div>
   </div>
 
+  <div id="toasts" class="toasts" aria-live="polite"></div>
   <script src="/static/app.js"></script>
 </body>
 
