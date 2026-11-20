@@ -1,6 +1,7 @@
 import asyncio
 import os
 import secrets
+import tempfile
 import uuid
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
@@ -16,11 +17,12 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import and_, or_, text
 from sqlalchemy.orm import Session
 
 from . import (
+    almacenamiento,
     auditoria,
     auth,
     automatizacion,
@@ -117,10 +119,6 @@ EXTENSIONES_BLOQUEADAS = {
 }
 
 
-def _directorio_uploads() -> Path:
-    return Path(os.getenv("UPLOAD_DIR", "uploads"))
-
-
 def _tamano_max_adjunto() -> int:
     try:
         mb = float(os.getenv("MAX_UPLOAD_MB", "25"))
@@ -130,7 +128,7 @@ def _tamano_max_adjunto() -> int:
 
 
 async def _guardar_archivo(archivo: UploadFile) -> tuple[str, str, int]:
-    """Valida y guarda el archivo en disco. Devuelve nombre, almacenado y tamaño."""
+    """Valida el archivo y lo entrega al almacén configurado."""
     nombre_original = (archivo.filename or "").replace("\\", "/").split("/")[-1]
     nombre_original = nombre_original.strip()
     if not nombre_original:
@@ -147,38 +145,32 @@ async def _guardar_archivo(archivo: UploadFile) -> tuple[str, str, int]:
         )
 
     nombre_almacenado = f"{uuid.uuid4().hex}{extension}"
-    directorio = _directorio_uploads()
-    directorio.mkdir(parents=True, exist_ok=True)
-    destino = directorio / nombre_almacenado
     maximo = _tamano_max_adjunto()
     total = 0
 
-    try:
-        with destino.open("wb") as salida:
-            while trozo := await archivo.read(1024 * 1024):
-                total += len(trozo)
-                if total > maximo:
-                    raise HTTPException(
-                        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-                        detail=(
-                            "El archivo supera el tamaño máximo permitido "
-                            f"({maximo // (1024 * 1024)} MB)"
-                        ),
-                    )
-                salida.write(trozo)
-    except HTTPException:
-        destino.unlink(missing_ok=True)
-        raise
-    except Exception:
-        destino.unlink(missing_ok=True)
-        raise
+    # Se vuelca primero a un fichero temporal con tope de memoria y se envía
+    # al almacén ya completo: sirve igual para disco local y para S3.
+    with tempfile.SpooledTemporaryFile(max_size=1024 * 1024) as spool:
+        while trozo := await archivo.read(1024 * 1024):
+            total += len(trozo)
+            if total > maximo:
+                raise HTTPException(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    detail=(
+                        "El archivo supera el tamaño máximo permitido "
+                        f"({maximo // (1024 * 1024)} MB)"
+                    ),
+                )
+            spool.write(trozo)
 
-    if total == 0:
-        destino.unlink(missing_ok=True)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="El archivo está vacío",
-        )
+        if total == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="El archivo está vacío",
+            )
+
+        spool.seek(0)
+        almacenamiento.obtener_almacen().guardar(nombre_almacenado, spool)
 
     return nombre_original, nombre_almacenado, total
 
@@ -994,7 +986,7 @@ async def subir_adjunto(
         db.commit()
     except Exception:
         db.rollback()
-        (_directorio_uploads() / nombre_almacenado).unlink(missing_ok=True)
+        almacenamiento.obtener_almacen().eliminar(nombre_almacenado)
         raise
 
     db.refresh(adjunto)
@@ -1037,15 +1029,17 @@ def descargar_adjunto(
             detail="Adjunto no encontrado",
         )
 
-    ruta = _directorio_uploads() / adjunto.nombre_almacenado
-    if not ruta.is_file():
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="El archivo ya no está disponible",
+    ruta = almacenamiento.obtener_almacen().descarga(adjunto.nombre_almacenado)
+    if isinstance(ruta, Path):
+        if not ruta.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="El archivo ya no está disponible",
+            )
+        return FileResponse(
+            ruta,
+            media_type=adjunto.content_type or "application/octet-stream",
+            filename=adjunto.nombre_original,
         )
 
-    return FileResponse(
-        ruta,
-        media_type=adjunto.content_type or "application/octet-stream",
-        filename=adjunto.nombre_original,
-    )
+    return RedirectResponse(ruta, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
