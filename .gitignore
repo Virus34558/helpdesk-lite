@@ -1,6 +1,33 @@
+# Entornos virtuales
 venv/
+.venv/
+
+# Python
 __pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Cobertura
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Base de datos local
 *.db
 *.db.bak-*
+
+# Secretos y configuracion local
 .env
+.env.*
+!.env.example
+
+# Subidas de usuarios
 uploads/
+
+# Editores y sistema
+.idea/
+.vscode/
+*.swp
+.DS_Store
